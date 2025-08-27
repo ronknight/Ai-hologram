@@ -3,9 +3,13 @@ import { SettingsProvider } from './context/SettingsContext';
 import ChatView from './components/ChatView';
 import SettingsModal from './components/SettingsModal';
 import { SettingsIcon } from './components/icons/SettingsIcon';
+import OllamaPlayground from './components/OllamaPlayground';
+
+type View = 'chat' | 'playground';
 
 const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [view, setView] = useState<View>('chat');
 
   return (
     <SettingsProvider>
@@ -22,9 +26,20 @@ const App: React.FC = () => {
         </div>
 
         <header className="absolute top-0 left-0 right-0 z-30 p-6 flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-accent/90 drop-shadow-[0_0_8px_theme(colors.accent)]">
+            <div className="flex items-center space-x-8">
+              <button 
+                onClick={() => setView('chat')}
+                className={`text-2xl font-bold transition-all duration-300 ${view === 'chat' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
+              >
                 AI Voice Assistant
-            </h1>
+              </button>
+              <button 
+                onClick={() => setView('playground')}
+                className={`text-xl font-bold transition-all duration-300 ${view === 'playground' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
+              >
+                Playground
+              </button>
+            </div>
             {/* Settings Button */}
             <button
               onClick={() => setIsSettingsOpen(true)}
@@ -36,7 +51,7 @@ const App: React.FC = () => {
         </header>
         
         <main className="relative z-10 pt-24">
-          <ChatView />
+          {view === 'chat' ? <ChatView /> : <OllamaPlayground />}
         </main>
         
         <SettingsModal 

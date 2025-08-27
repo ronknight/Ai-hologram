@@ -109,6 +109,49 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     }
   }, []);
   
+  // FIX: Add a function to stop speech synthesis and clear the queue.
+  const stopSpeaking = useCallback(() => {
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+    }
+    sentenceQueueRef.current = [];
+    if (currentUtteranceRef.current) {
+        currentUtteranceRef.current.onend = null;
+        currentUtteranceRef.current.onerror = null;
+        currentUtteranceRef.current = null;
+    }
+  }, []);
+
+  // FIX: Add a comprehensive stop function to halt both listening and speaking.
+  const stop = useCallback(() => {
+    stopCurrentRecognition();
+    stopSpeaking();
+    setSpeechState('idle');
+  }, [stopCurrentRecognition, stopSpeaking]);
+
+  // FIX: Add an effect to initialize the SpeechRecognition API and handle cleanup.
+  useEffect(() => {
+    if (!SpeechRecognitionAPI) {
+      setPermissionError('Speech recognition is not supported in this browser.');
+      return;
+    }
+    
+    if (!recognitionRef.current) {
+      try {
+        recognitionRef.current = new SpeechRecognitionAPI();
+      } catch (e) {
+        console.error("Error initializing SpeechRecognition:", e);
+        setPermissionError('Failed to initialize speech recognition.');
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      stop();
+    };
+  }, [stop]);
+
+  
   const startStandby = useCallback(() => {
     if (permissionError) return;
     stopCurrentRecognition();
@@ -183,4 +226,16 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     };
     
     recognition.start();
-  }, [stopCurrentRecognition, onTranscript, speechState
+  // FIX: Complete the dependency array for the useCallback hook, which was truncated.
+  }, [stopCurrentRecognition, onTranscript, speechState, permissionError]);
+
+  // FIX: Add return statement to export hook's state and functions, which was missing.
+  return {
+    speechState,
+    permissionError,
+    startStandby,
+    startListening,
+    speak,
+    stop,
+  };
+};
