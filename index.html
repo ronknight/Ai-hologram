@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Voice Chat Hologram</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'primary': '#0A0F1A',
+              'secondary': '#10182C',
+              'accent': '#00BFFF', // Deep Sky Blue
+              'light-accent': '#87CEFA', // Light Sky Blue
+              'cyan': '#00FFFF',
+              'glow': 'rgba(0, 191, 255, 0.5)',
+            },
+            animation: {
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'spin-slow': 'spin 30s linear infinite',
+              'spin-medium': 'spin 15s linear infinite',
+              'spin-fast': 'spin 5s linear infinite',
+              'breathing': 'breathing 5s ease-in-out infinite',
+              'float': 'float 6s ease-in-out infinite',
+              'glow': 'glow 2s ease-in-out infinite',
+              'scan-across': 'scan-across 1.5s ease-in-out infinite',
+            },
+            keyframes: {
+              breathing: {
+                '0%, 100%': { transform: 'scale(1)', opacity: '0.8' },
+                '50%': { transform: 'scale(1.05)', opacity: '1' },
+              },
+              float: {
+                '0%, 100%': { transform: 'translateY(0px)' },
+                '50%': { transform: 'translateY(-15px)' },
+              },
+              glow: {
+                '0%, 100%': { boxShadow: '0 0 20px theme(colors.glow)' },
+                '50%': { boxShadow: '0 0 35px theme(colors.glow)' },
+              },
+              'scan-across': {
+                '0%': { transform: 'translateX(-100%)' },
+                '100%': { transform: 'translateX(100%)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1"
+  }
+}
+</script>
+</head>
+  <body class="bg-primary text-gray-200">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

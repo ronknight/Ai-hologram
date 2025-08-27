@@ -1,0 +1,7 @@
+{
+  "name": "AI Voice Chat Hologram",
+  "description": "An AI-powered voice chat application featuring a realistic hologram interface, designed to work with a local Ollama server for fast, streaming responses. Includes an admin panel for configuring the AI model and server settings.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
