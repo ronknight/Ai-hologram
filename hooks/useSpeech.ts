@@ -30,6 +30,7 @@ interface SpeechRecognition extends EventTarget {
   onerror: (event: SpeechRecognitionErrorEvent) => void;
   start(): void;
   stop(): void;
+  state?: 'active' | 'inactive';
 }
 
 type SpeechRecognitionConstructor = new () => SpeechRecognition;
@@ -82,8 +83,7 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
         }
       };
       utterance.onerror = (event) => {
-        console.error('SpeechSynthesis Error', event);
-        setSpeechState('idle'); // Reset on error
+        setSpeechState('idle');
         processSentenceQueue();
       };
 
@@ -102,10 +102,22 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
   // --- Speech Recognition (STT) ---
   const stopCurrentRecognition = useCallback(() => {
     if (recognitionRef.current) {
+      try {
+        // Remove all listeners first to prevent any callbacks
         recognitionRef.current.onresult = null;
         recognitionRef.current.onend = null;
         recognitionRef.current.onerror = null;
-        recognitionRef.current.stop();
+        
+        // Check if recognition is active before stopping
+        if (recognitionRef.current.state === 'active') {
+          recognitionRef.current.stop();
+        }
+
+        // Reset the recognition instance
+        recognitionRef.current = new SpeechRecognitionAPI();
+      } catch (error) {
+        console.error('Error stopping recognition:', error);
+      }
     }
   }, []);
   
@@ -152,10 +164,20 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
   }, [stop]);
 
   
-  const startStandby = useCallback(() => {
+  const startStandby = useCallback(async () => {
     if (permissionError) return;
-    stopCurrentRecognition();
     if (!recognitionRef.current || !triggerWord) return;
+
+    // First ensure any existing recognition is fully stopped
+    await new Promise<void>((resolve) => {
+      if (recognitionRef.current?.state === 'active') {
+        stopCurrentRecognition();
+        // Give a small delay to ensure recognition is fully stopped
+        setTimeout(resolve, 100);
+      } else {
+        resolve();
+      }
+    });
 
     setSpeechState('standby');
     wakeWordDetectedRef.current = false;
@@ -173,15 +195,21 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     };
     
     recognition.onend = () => {
-       if (!wakeWordDetectedRef.current && speechState === 'standby') {
-           recognition.start();
-       }
+      // Only restart if we're still in standby and haven't detected the wake word
+      if (!wakeWordDetectedRef.current && speechState === 'standby') {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error('Failed to restart recognition:', e);
+          setSpeechState('idle');
+        }
+      }
     };
 
     recognition.onerror = (event) => {
         console.error("Standby SpeechRecognition error", event.error);
         if (event.error === 'not-allowed') {
-            stopCurrentRecognition(); // Stop immediately to prevent onend from restarting
+            stopCurrentRecognition();
             setPermissionError('Microphone permission denied. Please enable it in your browser settings.');
             setSpeechState('idle');
         } else if (event.error !== 'no-speech') {
@@ -189,7 +217,12 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
         }
     };
     
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error('Failed to start recognition:', e);
+      setSpeechState('idle');
+    }
 
   }, [stopCurrentRecognition, triggerWord, onActivation, speechState, permissionError]);
 

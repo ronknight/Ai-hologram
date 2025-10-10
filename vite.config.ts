@@ -12,6 +12,24 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      optimizeDeps: {
+        include: ['three', '@react-three/fiber', '@react-three/drei'],
+        exclude: [],
+        esbuildOptions: {
+          target: 'esnext'
+        }
+      },
+      build: {
+        target: 'esnext',
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              'three-deps': ['three'],
+              'react-three': ['@react-three/fiber', '@react-three/drei']
+            }
+          }
+        }
       }
     };
 });

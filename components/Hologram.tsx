@@ -1,4 +1,19 @@
-import React from 'react';
+import React, { Suspense } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import {
+  useGLTF,
+  Html,
+  useProgress,
+  Environment,
+  AccumulativeShadows,
+  RandomizedLight,
+  Center,
+  Effects,
+  OrbitControls,
+  PerspectiveCamera
+} from '@react-three/drei';
+import { useState, useRef } from 'react';
+import * as THREE from 'three';
 
 interface HologramProps {
   isListening: boolean;
@@ -6,68 +21,114 @@ interface HologramProps {
   isIdle: boolean;
 }
 
-const Hologram: React.FC<HologramProps> = ({ isListening, isSpeaking, isIdle }) => {
-  const stateClasses = {
-    listening: {
-      core: 'scale-110 bg-cyan',
-      rings: 'scale-105 opacity-100',
-      glow: 'opacity-100 scale-125',
-    },
-    speaking: {
-      core: 'scale-100 bg-light-accent animate-pulse',
-      rings: 'scale-110 opacity-100',
-      glow: 'opacity-75 scale-110',
-    },
-    idle: {
-      core: 'scale-90 bg-accent',
-      rings: 'scale-100 opacity-70',
-      glow: 'opacity-50 scale-100',
-    },
-  };
+function LoaderOverlay() {
+  const { active, progress } = useProgress();
+  
+  if (!active) return null;
+  
+  return (
+    <Html center>
+      <div className="text-center bg-black/50 px-3 py-2 rounded-md">
+        <p className="text-accent/90 text-sm">Loading...</p>
+      </div>
+    </Html>
+  );
+}
 
-  const currentState = isListening ? stateClasses.listening : isSpeaking ? stateClasses.speaking : stateClasses.idle;
+function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
+  const gltf = useGLTF('/models/hologram.glb');
+  const groupRef = useRef<THREE.Group>(null);
+  const [hovered, setHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Animation effect
+  useFrame((state) => {
+    if (!groupRef.current || isDragging) return;
+
+    // Gentle floating animation when not being manipulated
+    groupRef.current.position.y = Math.sin(state.clock.elapsedTime) * 0.1;
+
+    // Scale effect based on state
+    const baseScale = isDragging ? 1.8 : 1.5;
+    const targetScale = isListening ? baseScale * 1.1 : 
+                       isSpeaking ? baseScale * 1.05 : 
+                       hovered ? baseScale * 1.02 : 
+                       baseScale;
+    groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
+
+    // Auto-rotation only when not interacting
+    if (!isDragging && !hovered) {
+      if (isListening || isSpeaking) {
+        groupRef.current.rotation.y += 0.01;
+      } else {
+        groupRef.current.rotation.y += 0.002;
+      }
+    }
+  });
 
   return (
-    <div className="relative w-72 h-40 mb-4 flex items-center justify-center pointer-events-none animate-float">
-      {/* Base Projector Glow */}
-      <div className={`absolute bottom-0 w-48 h-12 bg-accent rounded-full filter blur-3xl transition-all duration-500 ${currentState.glow}`}></div>
-      
-      <div className="absolute w-full h-full" style={{ perspective: '1000px' }}>
-        {/* Core sphere */}
-        <div className={`absolute w-12 h-12 left-1/2 top-1/2 -ml-6 -mt-6 rounded-full filter blur-sm transition-all duration-500 ${currentState.core}`}></div>
-        <div className={`absolute w-12 h-12 left-1/2 top-1/2 -ml-6 -mt-6 rounded-full opacity-75 transition-all duration-500 ${currentState.core}`}></div>
+    <Center>
+      <group 
+        ref={groupRef} 
+        dispose={null}
+        onPointerOver={() => setHovered(true)}
+        onPointerOut={() => setHovered(false)}
+      >
+        <primitive 
+          object={gltf.scene} 
+          scale={1.5}
+        />
+        {(isListening || isSpeaking) && (
+          <pointLight
+            color={isListening ? '#00ff00' : '#0088ff'}
+            intensity={2}
+            distance={3}
+            position={[0, 1, 0]}
+          />
+        )}
+      </group>
+    </Center>
+  );
+}
 
-        {/* Ring Set */}
-        <div 
-          className={`absolute w-full h-full transition-all duration-500 ${currentState.rings}`} 
-          style={{ transformStyle: 'preserve-3d', transform: 'rotateX(75deg)' }}
-        >
-          {/* Outer Ring */}
-          <div className="absolute inset-0 border-2 border-accent/80 rounded-full animate-spin-slow"></div>
-          {/* Middle Ring */}
-          <div className="absolute inset-8 border border-light-accent/70 rounded-full animate-spin-medium" style={{ animationDirection: 'reverse' }}></div>
-          {/* Inner Ring */}
-          <div className="absolute inset-16 border-2 border-cyan/90 rounded-full animate-spin-fast"></div>
-          
-          {/* Vertical analysis bars for listening state */}
-          {isListening && (
-            <>
-              <div className="absolute top-1/2 left-1/2 w-px h-16 -mt-8 bg-gradient-to-b from-transparent via-cyan to-transparent animate-pulse"></div>
-              <div className="absolute top-1/2 left-1/2 w-px h-16 -mt-8 bg-gradient-to-b from-transparent via-cyan to-transparent animate-pulse" style={{ transform: 'rotate(90deg)' }}></div>
-            </>
-          )}
-
-           {/* Speaking energy particles */}
-           {isSpeaking && (
-              <>
-                <div className="absolute w-full h-full border-t-2 border-cyan rounded-full animate-ping opacity-75"></div>
-                <div className="absolute w-full h-full border-b-2 border-light-accent rounded-full animate-ping opacity-50" style={{ animationDelay: '0.5s' }}></div>
-              </>
-           )}
-        </div>
-      </div>
+const Hologram: React.FC<HologramProps> = ({ isListening, isSpeaking, isIdle }) => {
+  return (
+    <div className="fixed inset-0 w-full h-full z-10">
+      <Canvas
+        gl={{ 
+          alpha: true, 
+          antialias: true,
+          logarithmicDepthBuffer: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1
+        }}
+        dpr={[1, 2]}
+        shadows
+        className="touch-none"
+      >
+        <PerspectiveCamera makeDefault position={[0, 0, 4]} fov={50} />
+        <OrbitControls
+          enablePan={false}
+          enableDamping
+          dampingFactor={0.05}
+          rotateSpeed={0.5}
+          minDistance={2}
+          maxDistance={7}
+          minPolarAngle={Math.PI / 4}
+          maxPolarAngle={Math.PI / 1.5}
+        />
+        <Suspense fallback={<LoaderOverlay />}>
+          <Environment preset="city" />
+          <AccumulativeShadows temporal frames={60} alphaTest={0.85} opacity={0.8}>
+            <RandomizedLight amount={8} radius={10} ambient={0.5} position={[5, 5, -10]} />
+          </AccumulativeShadows>
+          <HologramModel isListening={isListening} isSpeaking={isSpeaking} isIdle={isIdle} />
+        </Suspense>
+      </Canvas>
     </div>
   );
 };
 
 export default Hologram;
+
+useGLTF.preload('/models/hologram.glb');

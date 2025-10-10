@@ -1,0 +1,257 @@
+
+import React, { Suspense, useMemo, useEffect, useRef, useState } from 'react';
+import { Canvas, useFrame, extend } from '@react-three/fiber';
+import { 
+  OrbitControls, 
+  useGLTF, 
+  Html, 
+  Center, 
+  Bounds, 
+  useProgress,
+  Environment,
+  PresentationControls,
+  Float,
+  AdaptiveDpr,
+  AdaptiveEvents
+} from '@react-three/drei';
+import * as THREE from 'three';
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error('Hologram Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="text-red-500 text-center p-4">
+          <h2>Something went wrong loading the hologram.</h2>
+          <button 
+            className="mt-2 px-4 py-2 bg-blue-500 text-white rounded"
+            onClick={() => this.setState({ hasError: false })}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+interface HologramProps {
+  isListening: boolean;
+  isSpeaking: boolean;
+  isIdle: boolean;
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error('Hologram Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="text-red-500 text-center p-4">
+          <h2>Something went wrong loading the hologram.</h2>
+          <button 
+            className="mt-2 px-4 py-2 bg-blue-500 text-white rounded"
+            onClick={() => this.setState({ hasError: false })}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function HologramModel({ isListening, isSpeaking }: { isListening: boolean; isSpeaking: boolean }) {
+  const modelUrl = '/models/hologram.glb';
+  console.log('Loading GLB from', modelUrl);
+  const gltf = useGLTF(modelUrl);
+  const [scaleTarget, setScaleTarget] = useState(1);
+  const scaleRef = useRef(1);
+
+  // Clone to avoid mutating cached GLTF scene when re-rendering
+  const scene = useMemo(() => {
+    const clonedScene = gltf.scene.clone();
+    // Apply better materials for hologram effect
+    clonedScene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.material = new THREE.MeshPhysicalMaterial({
+          transparent: true,
+          opacity: 0.8,
+          metalness: 0.5,
+          roughness: 0.1,
+          clearcoat: 1,
+          clearcoatRoughness: 0.1,
+          transmission: 0.5,
+        });
+      }
+    });
+    return clonedScene;
+  }, [gltf]);
+
+  // Smooth animation using useFrame
+  useFrame((state, delta) => {
+    const targetScale = isListening ? 1.2 : isSpeaking ? 1.1 : 1;
+    scaleRef.current = THREE.MathUtils.lerp(scaleRef.current, targetScale, delta * 4);
+    scene.scale.setScalar(scaleRef.current);
+  });
+
+  return (
+    <Float
+      speed={2}
+      rotationIntensity={0.5}
+      floatIntensity={0.5}
+      floatingRange={[-0.1, 0.1]}
+    >
+      <Bounds fit clip observe margin={1.2}>
+        <Center>
+          <primitive object={scene} />
+        </Center>
+      </Bounds>
+    </Float>
+  );
+}
+
+function LoaderOverlay() {
+  const { active, progress, item, errors } = useProgress();
+  const [showError, setShowError] = useState(false);
+
+  useEffect(() => {
+    if (errors && errors.length > 0) {
+      setShowError(true);
+      console.error('Loading errors:', errors);
+    }
+  }, [errors]);
+
+  if (!active && !showError) return null;
+
+  return (
+    <Html center>
+      <div className="text-center bg-black/50 px-3 py-2 rounded-md">
+        {showError ? (
+          <>
+            <p className="text-red-400">Failed to load model</p>
+            <p className="text-xs text-gray-300 max-w-[16rem] break-all">{String(errors?.[0])}</p>
+            <button 
+              className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-sm"
+              onClick={() => {
+                setShowError(false);
+                window.location.reload();
+              }}
+            >
+              Retry
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-accent">Loading hologram… {Math.round(progress)}%</p>
+            {item ? <p className="text-xs text-gray-300 max-w-[16rem] break-all">{item}</p> : null}
+          </>
+        )}
+      </div>
+    </Html>
+  );
+}
+
+const Hologram: React.FC<HologramProps> = ({ isListening, isSpeaking, isIdle }) => {
+  console.log('Hologram component rendering', { isListening, isSpeaking, isIdle });
+  
+  // Add initialization effect
+  useEffect(() => {
+    console.log('Hologram component mounted');
+    return () => console.log('Hologram component unmounted');
+  }, []);
+
+  return (
+    <ErrorBoundary>
+      <div className="relative w-72 h-72 mb-4 flex items-center justify-center">
+        <Canvas
+          className="w-full h-full"
+          camera={{ position: [0, 1, 3], fov: 45, near: 0.1, far: 1000 }}
+          gl={{ 
+            antialias: true,
+            alpha: true,
+            preserveDrawingBuffer: true,
+            logarithmicDepthBuffer: true
+          }}
+          onCreated={({ gl, scene }) => {
+            console.log('Canvas created');
+            gl.setClearColor(0x000000, 0);
+            scene.background = null;
+          }}
+          onError={(error) => {
+            console.error('Canvas error:', error);
+          }}
+        >
+        <color attach="background" args={['transparent']} />
+        
+        {/* Improved lighting setup */}
+        <ambientLight intensity={0.5} />
+        <pointLight position={[10, 10, 10]} intensity={1} />
+        <directionalLight
+          position={[5, 5, 5]}
+          intensity={0.8}
+          castShadow
+          shadow-mapSize={[1024, 1024]}
+        />
+        <spotLight
+          position={[-5, 5, 0]}
+          intensity={0.5}
+          angle={0.3}
+          penumbra={0.9}
+        />
+
+        <PresentationControls
+          global
+          zoom={0.8}
+          rotation={[0, -Math.PI / 4, 0]}
+          polar={[-Math.PI / 4, Math.PI / 4]}
+          azimuth={[-Math.PI / 4, Math.PI / 4]}
+        >
+          <Suspense fallback={<LoaderOverlay />}>
+            <HologramModel isListening={isListening} isSpeaking={isSpeaking} />
+          </Suspense>
+        </PresentationControls>
+
+        <Environment preset="city" />
+      </Canvas>
+      
+      {/* Enhanced glow effect */}
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-12 bg-accent rounded-full filter blur-3xl opacity-40 animate-pulse"></div>
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-gradient-radial from-accent/20 to-transparent opacity-30"></div>
+      </div>
+    </div>
+  );
+};
+
+export default Hologram;
+
+// Preload the model to reduce popping on first render
+useGLTF.preload('/models/hologram.glb');

@@ -14,25 +14,53 @@ import { ChatMessage, OllamaModel, MessageRole } from '../types';
  */
 async function fetchWithTimeout(
   resource: RequestInfo,
-  options: RequestInit & { timeout?: number } = {}
+  options: RequestInit & { timeout?: number; retries?: number } = {}
 ): Promise<Response> {
-  const { timeout = 15000 } = options; // Default timeout of 15 seconds
+  const { timeout = 15000, retries = 3 } = options;
+  let lastError: Error | null = null;
 
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
 
-  try {
-    const response = await fetch(resource, {
-      ...options,
-      signal: controller.signal,
-    });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    // Re-throw the error so it can be caught by the calling function
-    throw error;
+    try {
+      const response = await fetch(resource, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(id);
+
+      // Check for network errors
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+      }
+
+      return response;
+    } catch (error) {
+      clearTimeout(id);
+      lastError = error as Error;
+      
+      // Log more specific error information
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `Attempt ${attempt + 1}/${retries} failed:`,
+        errorMessage,
+        resource.toString()
+      );
+
+      if (attempt < retries - 1) {
+        // Enhanced exponential backoff with jitter
+        const baseDelay = Math.pow(2, attempt) * 1000;
+        const jitter = Math.random() * 1000;
+        await new Promise(resolve => setTimeout(resolve, baseDelay + jitter));
+      }
+    }
   }
+
+  // Throw a more descriptive error
+  const errorMessage = lastError instanceof Error ? lastError.message : 'Unknown error';
+  throw new Error(`Failed after ${retries} attempts: ${errorMessage}`);
 }
 
 // --- Type Definitions for Ollama API ---
@@ -123,13 +151,37 @@ async function generate(baseUrl: string, body: OllamaGenerateBody): Promise<Olla
  * Fetches the list of available models from an Ollama server.
  */
 export async function getModels(baseUrl: string): Promise<OllamaModel[]> {
-  const response = await fetchWithTimeout(`${baseUrl}/api/tags`);
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to fetch models from Ollama: ${response.status} ${errorText}`);
+  if (!baseUrl?.trim()) {
+    console.warn('No Ollama base URL provided');
+    return [];
   }
-  const data = await response.json();
-  return data.models;
+
+  try {
+    const response = await fetchWithTimeout(`${baseUrl}/api/tags`, {
+      retries: 3,
+      timeout: 8000 // Increased timeout for reliability
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch models from Ollama: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    if (!data?.models || !Array.isArray(data.models)) {
+      console.warn('Unexpected response format from Ollama API');
+      return [];
+    }
+
+    return data.models;
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      console.error('Cannot connect to Ollama server. Please ensure it is running.');
+    } else {
+      console.error('Failed to fetch Ollama models:', error);
+    }
+    return [];
+  }
 }
 
 

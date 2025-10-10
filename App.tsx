@@ -11,9 +11,15 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [view, setView] = useState<View>('chat');
 
+  console.log('App component rendering');
+
   return (
     <SettingsProvider>
       <div className="relative min-h-screen bg-primary font-sans overflow-hidden">
+        {/* Debug: Simple visible element */}
+        <div style={{ position: 'fixed', top: '10px', left: '10px', background: 'red', color: 'white', padding: '10px', zIndex: 9999 }}>
+          DEBUG: App is rendering
+        </div>
         {/* Futuristic Background Elements */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute inset-0 bg-[linear-gradient(to_right,theme(colors.secondary)_1px,transparent_1px),linear-gradient(to_bottom,theme(colors.secondary)_1px,transparent_1px)] bg-[size:3rem_3rem] opacity-50"></div>
