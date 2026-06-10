@@ -35,18 +35,95 @@ function LoaderOverlay() {
   );
 }
 
+type BoneEntry = { bone: THREE.Object3D; rest: THREE.Euler };
+
 function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
   const gltf = useGLTF('/models/hologram.glb');
   const groupRef = useRef<THREE.Group>(null);
+  const bonesRef = useRef<Record<string, BoneEntry>>({});
   const [hovered, setHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  // The GLB ships a full skeleton but no animation clips, so idle motion is
+  // driven procedurally. Collect the joints we animate and their rest pose.
+  React.useEffect(() => {
+    const targets: Record<string, RegExp> = {
+      hips: /root hips/,
+      spineMiddle: /spine middle/,
+      spineUpper: /spine upper/,
+      neckLower: /head neck lower/,
+      neckUpper: /head neck upper/,
+      leftShoulder: /arm left shoulder 2/,
+      rightShoulder: /arm right shoulder 2/,
+      leftElbow: /arm left elbow/,
+      rightElbow: /arm right elbow/,
+      leftThigh: /leg left thigh/,
+      rightThigh: /leg right thigh/,
+      leftKnee: /leg left knee/,
+      rightKnee: /leg right knee/,
+    };
+    const found: Record<string, BoneEntry> = {};
+    gltf.scene.traverse((child) => {
+      // GLTFLoader replaces spaces in node names with underscores
+      const norm = child.name.toLowerCase().replace(/[_\s]+/g, ' ');
+      for (const key of Object.keys(targets)) {
+        if (!found[key] && targets[key].test(norm)) {
+          found[key] = { bone: child, rest: child.rotation.clone() };
+        }
+      }
+    });
+    bonesRef.current = found;
+  }, [gltf.scene]);
+
+  // Process materials on load to ensure gold/metallic materials render correctly
+  React.useEffect(() => {
+    if (gltf.scene) {
+      gltf.scene.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material) {
+          const material = child.material as THREE.MeshStandardMaterial;
+
+          // The model (an XPS conversion) is built from a base skin (25_*,
+          // black with emissive green chest core and eyes) plus duplicate-
+          // geometry recolor layers whose RGBA textures are cutout overlays.
+          // The official Sketchfab render composites base + gold head/gloves
+          // + red body/boots, so recreate that stack and hide the rest.
+          const matName = material.name.toLowerCase();
+          const isBase = matName.startsWith('25_');
+          const isOverlay = ['27_headgold', '26_glovesgold', '27_bodyred', '27_bootsred']
+            .some((p) => matName.startsWith(p));
+          child.visible = isBase || isOverlay;
+          if (!child.visible) return;
+
+          // Render the layers as alpha-tested cutouts instead of the exported
+          // BLEND mode (which disables depth-write and looks ghosted). The
+          // overlays get a polygon offset so they beat the co-planar base in
+          // the depth test wherever their texture is opaque.
+          material.transparent = false;
+          material.opacity = 1;
+          material.depthWrite = true;
+          material.alphaTest = isOverlay ? 0.5 : 0.01;
+          if (isOverlay) {
+            material.polygonOffset = true;
+            material.polygonOffsetFactor = -1;
+            material.polygonOffsetUnits = -1;
+          }
+          // The source textures are authored for matte diffuse shading, but
+          // glTF defaults metalness to 1, which renders as dark chrome.
+          material.metalness = 0.15;
+          material.roughness = 0.75;
+          material.envMapIntensity = 0.8;
+          material.needsUpdate = true;
+        }
+      });
+    }
+  }, [gltf.scene]);
 
   // Animation effect
   useFrame((state) => {
     if (!groupRef.current || isDragging) return;
 
     // Gentle floating animation when not being manipulated
-    groupRef.current.position.y = Math.sin(state.clock.elapsedTime) * 0.1;
+    groupRef.current.position.y = Math.sin(state.clock.elapsedTime * 1.5) * 0.25;
 
     // Scale effect based on state
     const baseScale = isDragging ? 1.8 : 1.5;
@@ -56,14 +133,40 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
                        baseScale;
     groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
 
-    // Auto-rotation only when not interacting
-    if (!isDragging && !hovered) {
-      if (isListening || isSpeaking) {
-        groupRef.current.rotation.y += 0.01;
-      } else {
-        groupRef.current.rotation.y += 0.002;
-      }
-    }
+    const t = state.clock.elapsedTime;
+
+    // Procedural skeletal idle animation, livelier while listening/speaking
+    const energy = isSpeaking ? 2 : isListening ? 1.5 : 1;
+    const bones = bonesRef.current;
+    // oscillate around the rest pose: rest + sin(t * speed + phase) * amount
+    const sway = (key: string, axis: 'x' | 'y' | 'z', amount: number, speed: number, phase = 0) => {
+      const entry = bones[key];
+      if (entry) entry.bone.rotation[axis] = entry.rest[axis] + Math.sin(t * speed + phase) * amount;
+    };
+    // one-directional bend in [0, amount], for joints like elbows and knees
+    const bend = (key: string, axis: 'x' | 'y' | 'z', amount: number, speed: number, phase = 0) => {
+      const entry = bones[key];
+      if (entry) entry.bone.rotation[axis] = entry.rest[axis] + (Math.sin(t * speed + phase) + 1) * 0.5 * amount;
+    };
+
+    // breathing through the torso
+    sway('spineMiddle', 'x', 0.03 * energy, 1.4);
+    sway('spineUpper', 'x', 0.045 * energy, 1.4, 0.4);
+    sway('hips', 'y', 0.04, 0.6);
+    // head looks around
+    sway('neckLower', 'y', 0.12 * energy, 0.5);
+    sway('neckUpper', 'y', 0.22 * energy, 0.5, 0.5);
+    sway('neckUpper', 'x', 0.07, 0.8, 1.2);
+    // arms: shoulder sway plus alternating elbow bends
+    sway('leftShoulder', 'z', 0.09 * energy, 1.1);
+    sway('rightShoulder', 'z', 0.09 * energy, 1.1, Math.PI);
+    bend('leftElbow', 'y', 0.35 * energy, 1.2);
+    bend('rightElbow', 'y', -0.35 * energy, 1.2, Math.PI);
+    // legs: subtle weight shifting
+    sway('leftThigh', 'z', 0.035, 0.6);
+    sway('rightThigh', 'z', -0.035, 0.6);
+    bend('leftKnee', 'x', 0.06, 0.6);
+    bend('rightKnee', 'x', 0.06, 0.6, Math.PI);
   });
 
   return (
@@ -95,18 +198,21 @@ const Hologram: React.FC<HologramProps> = ({ isListening, isSpeaking, isIdle }) 
   return (
     <div className="fixed inset-0 w-full h-full z-10">
       <Canvas
-        gl={{ 
-          alpha: true, 
+        gl={{
+          alpha: true,
           antialias: true,
-          logarithmicDepthBuffer: true,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1
+          toneMappingExposure: 1.6,
+          outputColorSpace: THREE.SRGBColorSpace
         }}
         dpr={[1, 2]}
         shadows
         className="touch-none"
       >
-        <PerspectiveCamera makeDefault position={[0, 0, 4]} fov={50} />
+        <PerspectiveCamera makeDefault position={[0, 0, 5.5]} fov={50} />
+        <ambientLight intensity={0.9} />
+        <directionalLight position={[5, 8, 5]} intensity={2.8} />
+        <directionalLight position={[-5, 3, -6]} intensity={1.4} color="#00bfff" />
         <OrbitControls
           enablePan={false}
           enableDamping
@@ -118,7 +224,7 @@ const Hologram: React.FC<HologramProps> = ({ isListening, isSpeaking, isIdle }) 
           maxPolarAngle={Math.PI / 1.5}
         />
         <Suspense fallback={<LoaderOverlay />}>
-          <Environment preset="city" />
+          <Environment preset="city" background={false} />
           <AccumulativeShadows temporal frames={60} alphaTest={0.85} opacity={0.8}>
             <RandomizedLight amount={8} radius={10} ambient={0.5} position={[5, 5, -10]} />
           </AccumulativeShadows>
