@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import * as ollama from '../services/ollama';
 import { SpinnerIcon } from './icons/SpinnerIcon';
@@ -6,8 +6,8 @@ import { SpinnerIcon } from './icons/SpinnerIcon';
 type Strategy = 'json' | 'text' | 'rich' | 'grounded';
 
 const PlaygroundSection: React.FC<{ title: string; description: string; children: React.ReactNode }> = ({ title, description, children }) => (
-    <div className="bg-secondary/40 border border-gray-700/50 rounded-lg p-6 backdrop-blur-sm">
-        <h3 className="text-xl font-bold text-cyan mb-2 drop-shadow-[0_0_5px_theme(colors.cyan)]">{title}</h3>
+    <div className="bg-secondary/40 border border-gray-700/50 rounded-lg p-4 sm:p-6 backdrop-blur-sm">
+        <h3 className="text-lg sm:text-xl font-bold text-cyan mb-2 drop-shadow-[0_0_5px_theme(colors.cyan)]">{title}</h3>
         <p className="text-gray-400 mb-4 text-sm">{description}</p>
         <div className="space-y-4">{children}</div>
     </div>
@@ -20,8 +20,9 @@ const LabeledInput: React.FC<{ label: string; children: React.ReactNode }> = ({ 
     </div>
 );
 
-const CommonInputStyles = "w-full px-3 py-2 bg-primary/70 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan focus:border-cyan transition-colors text-gray-200 placeholder-gray-500";
-const CommonButtonStyles = "px-5 py-2 bg-accent/80 hover:bg-cyan text-white rounded-md transition-colors flex items-center justify-center disabled:bg-gray-600 disabled:cursor-not-allowed w-40";
+// text-base keeps iOS Safari from zooming the page in when a field takes focus.
+const CommonInputStyles = "w-full px-3 py-2 text-base bg-primary/70 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan focus:border-cyan transition-colors text-gray-200 placeholder-gray-500";
+const CommonButtonStyles = "px-5 py-2 bg-accent/80 hover:bg-cyan text-white rounded-md transition-colors flex items-center justify-center disabled:bg-gray-600 disabled:cursor-not-allowed w-full sm:w-40";
 
 const OllamaPlayground: React.FC = () => {
     const { ollamaUrl, selectedModel, temperature, connectionError } = useSettings();
@@ -113,8 +114,8 @@ const OllamaPlayground: React.FC = () => {
     }
 
     return (
-        <div className="w-full max-w-4xl mx-auto p-4 space-y-8 pb-16">
-            <h1 className="text-4xl font-bold text-center text-gray-200">Ollama Service Playground</h1>
+        <div className="w-full max-w-4xl mx-auto p-4 space-y-6 sm:space-y-8 pb-16">
+            <h1 className="text-2xl sm:text-4xl font-bold text-center text-gray-200">Ollama Service Playground</h1>
             
             {/* JSON Generation */}
             <PlaygroundSection title="Structured JSON Output" description="Force the model to return a clean, syntactically correct JSON object by providing an explicit prompt and schema.">
@@ -128,7 +129,7 @@ const OllamaPlayground: React.FC = () => {
                     {jsonLoading ? <SpinnerIcon /> : "Generate JSON"}
                 </button>
                 {jsonError && <pre className="text-red-400 text-xs whitespace-pre-wrap">{jsonError}</pre>}
-                {jsonResult && <pre className="bg-primary/50 p-3 rounded-md text-cyan/90 text-sm whitespace-pre-wrap">{jsonResult}</pre>}
+                {jsonResult && <pre className="bg-primary/50 p-3 rounded-md text-cyan/90 text-sm whitespace-pre-wrap overflow-x-auto">{jsonResult}</pre>}
             </PlaygroundSection>
 
             {/* Constrained Text */}
@@ -143,7 +144,7 @@ const OllamaPlayground: React.FC = () => {
                     {constrainedLoading ? <SpinnerIcon /> : "Generate Text"}
                 </button>
                 {constrainedError && <pre className="text-red-400 text-xs whitespace-pre-wrap">{constrainedError}</pre>}
-                {constrainedResult && <pre className="bg-primary/50 p-3 rounded-md text-gray-300 text-sm whitespace-pre-wrap">{constrainedResult}</pre>}
+                {constrainedResult && <pre className="bg-primary/50 p-3 rounded-md text-gray-300 text-sm whitespace-pre-wrap overflow-x-auto">{constrainedResult}</pre>}
             </PlaygroundSection>
 
             {/* Rich Content */}
@@ -158,7 +159,7 @@ const OllamaPlayground: React.FC = () => {
                     {richLoading ? <SpinnerIcon /> : "Generate Report"}
                 </button>
                 {richError && <pre className="text-red-400 text-xs whitespace-pre-wrap">{richError}</pre>}
-                {richResult && <pre className="bg-primary/50 p-3 rounded-md text-gray-300 text-sm whitespace-pre-wrap">{richResult}</pre>}
+                {richResult && <pre className="bg-primary/50 p-3 rounded-md text-gray-300 text-sm whitespace-pre-wrap overflow-x-auto">{richResult}</pre>}
             </PlaygroundSection>
 
             {/* Grounded Q&A */}
@@ -173,7 +174,7 @@ const OllamaPlayground: React.FC = () => {
                     {groundedLoading ? <SpinnerIcon /> : "Get Answer"}
                 </button>
                 {groundedError && <pre className="text-red-400 text-xs whitespace-pre-wrap">{groundedError}</pre>}
-                {groundedResult && <pre className="bg-primary/50 p-3 rounded-md text-gray-300 text-sm whitespace-pre-wrap">{groundedResult}</pre>}
+                {groundedResult && <pre className="bg-primary/50 p-3 rounded-md text-gray-300 text-sm whitespace-pre-wrap overflow-x-auto">{groundedResult}</pre>}
             </PlaygroundSection>
         </div>
     );

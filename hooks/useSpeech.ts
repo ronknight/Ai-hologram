@@ -21,16 +21,21 @@ interface SpeechRecognitionErrorEvent extends Event {
   readonly error: string;
 }
 
+// Note: the spec exposes no way to query whether recognition is running, so the
+// hook tracks that itself in runningRef. An earlier version of this file
+// declared a `state` field here and branched on it; no browser implements it, so
+// every guard read `undefined`, never stopped the running session, and the next
+// start() threw InvalidStateError on repeat.
 interface SpeechRecognition extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  onresult: (event: SpeechRecognitionEvent) => void;
-  onend: () => void;
-  onerror: (event: SpeechRecognitionErrorEvent) => void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
   start(): void;
   stop(): void;
-  state?: 'active' | 'inactive';
+  abort(): void;
 }
 
 type SpeechRecognitionConstructor = new () => SpeechRecognition;
@@ -54,215 +59,285 @@ interface UseSpeechProps {
   onTranscript: (transcript: string) => void;
 }
 
+// Chrome ends a continuous session on its own after a stretch of silence, so
+// standby has to restart it. These bound that restart so a permanently failing
+// microphone backs off instead of spinning.
+const RESTART_DELAY_MS = 400;
+const SHORT_SESSION_MS = 1000;
+const MAX_SHORT_SESSIONS = 5;
+const START_RETRY_MS = 150;
+const START_RETRIES = 4;
+
 export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeechProps) => {
   const [speechState, setSpeechState] = useState<SpeechState>('idle');
   const [permissionError, setPermissionError] = useState<string | null>(null);
-  
+
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const sentenceQueueRef = useRef<string[]>([]);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const wakeWordDetectedRef = useRef(false);
 
+  // Mirrors of state that event handlers read. Recognition callbacks outlive the
+  // render that installed them, so reading `speechState` there sees a stale
+  // value; these refs are always current.
+  const stateRef = useRef<SpeechState>('idle');
+  const runningRef = useRef(false);
+  const modeRef = useRef<'standby' | 'listening' | null>(null);
+  const blockedRef = useRef(false);
+  const speakingRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionStartRef = useRef(0);
+  const shortSessionsRef = useRef(0);
+
+  // Latest props, so the start/stop callbacks below can stay referentially
+  // stable and not restart listening on every render of the consumer.
+  const triggerWordRef = useRef(triggerWord);
+  const onActivationRef = useRef(onActivation);
+  const onTranscriptRef = useRef(onTranscript);
+  triggerWordRef.current = triggerWord;
+  onActivationRef.current = onActivation;
+  onTranscriptRef.current = onTranscript;
+
+  const applyState = useCallback((next: SpeechState) => {
+    stateRef.current = next;
+    setSpeechState(next);
+  }, []);
+
   // --- Speech Synthesis (TTS) ---
   const processSentenceQueue = useCallback(() => {
-    if (speechState === 'speaking' || sentenceQueueRef.current.length === 0) {
+    if (speakingRef.current) return;
+
+    const textToSpeak = sentenceQueueRef.current.shift();
+    if (!textToSpeak) {
+      if (stateRef.current === 'speaking') applyState('idle');
       return;
     }
-    
-    setSpeechState('speaking');
-    const textToSpeak = sentenceQueueRef.current.shift();
-    if (textToSpeak) {
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      currentUtteranceRef.current = utterance;
 
-      utterance.onend = () => {
-        if (sentenceQueueRef.current.length > 0) {
-            processSentenceQueue();
-        } else {
-            setSpeechState('idle');
-        }
-      };
-      utterance.onerror = (event) => {
-        setSpeechState('idle');
-        processSentenceQueue();
-      };
+    speakingRef.current = true;
+    applyState('speaking');
 
-      window.speechSynthesis.speak(utterance);
-    } else {
-        setSpeechState('idle');
-    }
-  }, [speechState]);
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    currentUtteranceRef.current = utterance;
+
+    const advance = () => {
+      speakingRef.current = false;
+      currentUtteranceRef.current = null;
+      processSentenceQueue();
+    };
+    utterance.onend = advance;
+    utterance.onerror = advance;
+
+    window.speechSynthesis.speak(utterance);
+  }, [applyState]);
 
   const speak = useCallback((text: string) => {
     const sentences = text.match(/[^.!?]+[.!?\n]*/g) || [text];
-    sentenceQueueRef.current.push(...sentences.filter(s => s.trim().length > 0));
+    sentenceQueueRef.current.push(...sentences.filter((s) => s.trim().length > 0));
     processSentenceQueue();
   }, [processSentenceQueue]);
 
-  // --- Speech Recognition (STT) ---
-  const stopCurrentRecognition = useCallback(() => {
-    if (recognitionRef.current) {
-      try {
-        // Remove all listeners first to prevent any callbacks
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.onerror = null;
-        
-        // Check if recognition is active before stopping
-        if (recognitionRef.current.state === 'active') {
-          recognitionRef.current.stop();
-        }
-
-        // Reset the recognition instance
-        recognitionRef.current = new SpeechRecognitionAPI();
-      } catch (error) {
-        console.error('Error stopping recognition:', error);
-      }
-    }
-  }, []);
-  
-  // FIX: Add a function to stop speech synthesis and clear the queue.
   const stopSpeaking = useCallback(() => {
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
-    }
     sentenceQueueRef.current = [];
     if (currentUtteranceRef.current) {
-        currentUtteranceRef.current.onend = null;
-        currentUtteranceRef.current.onerror = null;
-        currentUtteranceRef.current = null;
+      currentUtteranceRef.current.onend = null;
+      currentUtteranceRef.current.onerror = null;
+      currentUtteranceRef.current = null;
+    }
+    speakingRef.current = false;
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      window.speechSynthesis.cancel();
     }
   }, []);
 
-  // FIX: Add a comprehensive stop function to halt both listening and speaking.
+  // --- Speech Recognition (STT) ---
+  const stopCurrentRecognition = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    modeRef.current = null;
+
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+
+    recognition.onresult = null;
+    recognition.onend = null;
+    recognition.onerror = null;
+
+    if (runningRef.current) {
+      try {
+        // abort() drops the session immediately; stop() waits for a final
+        // result and would keep the microphone open past this call.
+        recognition.abort();
+      } catch {
+        // Already finished on its own — nothing left to release.
+      }
+      runningRef.current = false;
+    }
+  }, []);
+
   const stop = useCallback(() => {
     stopCurrentRecognition();
     stopSpeaking();
-    setSpeechState('idle');
-  }, [stopCurrentRecognition, stopSpeaking]);
+    applyState('idle');
+  }, [stopCurrentRecognition, stopSpeaking, applyState]);
 
-  // FIX: Add an effect to initialize the SpeechRecognition API and handle cleanup.
-  useEffect(() => {
-    if (!SpeechRecognitionAPI) {
-      setPermissionError('Speech recognition is not supported in this browser.');
-      return;
-    }
-    
-    if (!recognitionRef.current) {
-      try {
-        recognitionRef.current = new SpeechRecognitionAPI();
-      } catch (e) {
-        console.error("Error initializing SpeechRecognition:", e);
-        setPermissionError('Failed to initialize speech recognition.');
+  const safeStart = useCallback((recognition: SpeechRecognition, attempt = 0) => {
+    try {
+      recognition.start();
+      runningRef.current = true;
+      sessionStartRef.current = Date.now();
+    } catch (error) {
+      // Chrome throws InvalidStateError when start() lands before the previous
+      // session has finished winding down from abort(). Wait it out instead of
+      // logging, which is what produced the repeating "recognition has already
+      // started" errors.
+      if ((error as DOMException)?.name === 'InvalidStateError' && attempt < START_RETRIES) {
+        restartTimerRef.current = setTimeout(() => {
+          restartTimerRef.current = null;
+          if (modeRef.current && !runningRef.current) safeStart(recognition, attempt + 1);
+        }, START_RETRY_MS);
+        return;
       }
+      console.error('Failed to start recognition:', error);
+      modeRef.current = null;
+      runningRef.current = false;
+      applyState('idle');
     }
-    
-    // Cleanup on unmount
-    return () => {
-      stop();
-    };
-  }, [stop]);
+  }, [applyState]);
 
-  
-  const startStandby = useCallback(async () => {
-    if (permissionError) return;
-    if (!recognitionRef.current || !triggerWord) return;
+  const handleRecognitionError = useCallback((event: SpeechRecognitionErrorEvent) => {
+    // 'aborted' is what our own stopCurrentRecognition() raises, and 'no-speech'
+    // is the normal end of a silent session. Neither is worth surfacing.
+    if (event.error === 'aborted' || event.error === 'no-speech') return;
 
-    // First ensure any existing recognition is fully stopped
-    await new Promise<void>((resolve) => {
-      if (recognitionRef.current?.state === 'active') {
-        stopCurrentRecognition();
-        // Give a small delay to ensure recognition is fully stopped
-        setTimeout(resolve, 100);
-      } else {
-        resolve();
-      }
-    });
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      blockedRef.current = true;
+      setPermissionError('Microphone permission denied. Please enable it in your browser settings.');
+    } else if (event.error === 'audio-capture') {
+      blockedRef.current = true;
+      setPermissionError('No microphone found. Connect one and try again.');
+    } else {
+      console.error('SpeechRecognition error:', event.error);
+    }
 
-    setSpeechState('standby');
+    stopCurrentRecognition();
+    applyState('idle');
+  }, [stopCurrentRecognition, applyState]);
+
+  const startStandby = useCallback(() => {
+    if (blockedRef.current || !SpeechRecognitionAPI) return;
+    if (!recognitionRef.current || !triggerWordRef.current) return;
+    // Already listening for the trigger word; starting again would only throw.
+    if (modeRef.current === 'standby' && runningRef.current) return;
+
+    stopCurrentRecognition();
+
+    modeRef.current = 'standby';
     wakeWordDetectedRef.current = false;
-    
+    shortSessionsRef.current = 0;
+    applyState('standby');
+
     const recognition = recognitionRef.current;
     recognition.continuous = true;
     recognition.interimResults = true;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-      if (transcript.includes(triggerWord.toLowerCase()) && !wakeWordDetectedRef.current) {
+      shortSessionsRef.current = 0;
+      if (transcript.includes(triggerWordRef.current.toLowerCase()) && !wakeWordDetectedRef.current) {
         wakeWordDetectedRef.current = true;
-        onActivation();
+        onActivationRef.current();
       }
     };
-    
+
     recognition.onend = () => {
-      // Only restart if we're still in standby and haven't detected the wake word
-      if (!wakeWordDetectedRef.current && speechState === 'standby') {
-        try {
-          recognition.start();
-        } catch (e) {
-          console.error('Failed to restart recognition:', e);
-          setSpeechState('idle');
-        }
+      runningRef.current = false;
+      if (modeRef.current !== 'standby' || blockedRef.current || wakeWordDetectedRef.current) return;
+
+      // A session that ends almost immediately means the engine is refusing to
+      // run. Restarting on a timer would produce the repeating console errors
+      // this guard exists to prevent.
+      shortSessionsRef.current =
+        Date.now() - sessionStartRef.current < SHORT_SESSION_MS ? shortSessionsRef.current + 1 : 0;
+      if (shortSessionsRef.current >= MAX_SHORT_SESSIONS) {
+        setPermissionError('Voice input keeps disconnecting. Use the mic button or type instead.');
+        stopCurrentRecognition();
+        applyState('idle');
+        return;
       }
+
+      restartTimerRef.current = setTimeout(() => {
+        restartTimerRef.current = null;
+        if (modeRef.current === 'standby' && !runningRef.current) safeStart(recognition);
+      }, RESTART_DELAY_MS);
     };
 
-    recognition.onerror = (event) => {
-        console.error("Standby SpeechRecognition error", event.error);
-        if (event.error === 'not-allowed') {
-            stopCurrentRecognition();
-            setPermissionError('Microphone permission denied. Please enable it in your browser settings.');
-            setSpeechState('idle');
-        } else if (event.error !== 'no-speech') {
-            setSpeechState('idle');
-        }
-    };
-    
-    try {
-      recognition.start();
-    } catch (e) {
-      console.error('Failed to start recognition:', e);
-      setSpeechState('idle');
-    }
+    recognition.onerror = handleRecognitionError;
 
-  }, [stopCurrentRecognition, triggerWord, onActivation, speechState, permissionError]);
+    safeStart(recognition);
+  }, [stopCurrentRecognition, applyState, safeStart, handleRecognitionError]);
 
   const startListening = useCallback(() => {
-    if (permissionError) return;
-    stopCurrentRecognition();
+    if (blockedRef.current || !SpeechRecognitionAPI) return;
     if (!recognitionRef.current) return;
-    
-    setSpeechState('listening');
+
+    stopCurrentRecognition();
+
+    modeRef.current = 'listening';
+    applyState('listening');
 
     const recognition = recognitionRef.current;
     recognition.continuous = false;
     recognition.interimResults = false;
 
-    recognition.onresult = (event) => {
-        const finalTranscript = event.results[0][0].transcript.trim();
-        if (finalTranscript) {
-          onTranscript(finalTranscript);
-        }
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const finalTranscript = event.results[0][0].transcript.trim();
+      if (finalTranscript) onTranscriptRef.current(finalTranscript);
     };
 
     recognition.onend = () => {
-      if (speechState === 'listening') {
-        setSpeechState('idle');
-      }
+      runningRef.current = false;
+      if (modeRef.current !== 'listening') return;
+      modeRef.current = null;
+      applyState('idle');
     };
 
-    recognition.onerror = (event) => {
-      console.error("Active Listening SpeechRecognition error", event.error);
-       if (event.error === 'not-allowed') {
-        setPermissionError('Microphone permission denied. Please enable it in your browser settings.');
-      }
-      setSpeechState('idle');
-    };
-    
-    recognition.start();
-  // FIX: Complete the dependency array for the useCallback hook, which was truncated.
-  }, [stopCurrentRecognition, onTranscript, speechState, permissionError]);
+    recognition.onerror = handleRecognitionError;
 
-  // FIX: Add return statement to export hook's state and functions, which was missing.
+    safeStart(recognition);
+  }, [stopCurrentRecognition, applyState, safeStart, handleRecognitionError]);
+
+  /** Lets the user retry after fixing permissions, instead of being stuck with the banner. */
+  const dismissError = useCallback(() => {
+    blockedRef.current = false;
+    shortSessionsRef.current = 0;
+    setPermissionError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!SpeechRecognitionAPI) {
+      blockedRef.current = true;
+      setPermissionError('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    if (!recognitionRef.current) {
+      try {
+        recognitionRef.current = new SpeechRecognitionAPI();
+      } catch (e) {
+        blockedRef.current = true;
+        console.error('Error initializing SpeechRecognition:', e);
+        setPermissionError('Failed to initialize speech recognition.');
+      }
+    }
+
+    return () => {
+      stopCurrentRecognition();
+      stopSpeaking();
+    };
+  }, [stopCurrentRecognition, stopSpeaking]);
+
   return {
     speechState,
     permissionError,
@@ -270,5 +345,6 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     startListening,
     speak,
     stop,
+    dismissError,
   };
 };

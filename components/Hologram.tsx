@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   useGLTF,
   Html,
@@ -8,17 +8,25 @@ import {
   AccumulativeShadows,
   RandomizedLight,
   Center,
-  Effects,
   OrbitControls,
   PerspectiveCamera
 } from '@react-three/drei';
 import { useState, useRef } from 'react';
 import * as THREE from 'three';
+import { capBoundaryHoles } from './capHoles';
+import HologramBackdrop from './HologramBackdrop';
+import type { BackdropTheme } from '../types';
 
 interface HologramProps {
   isListening: boolean;
   isSpeaking: boolean;
   isIdle: boolean;
+}
+
+interface HologramViewProps extends HologramProps {
+  /** Passed down as a prop, not read from context: React context does not
+      cross the react-three-fiber Canvas boundary. */
+  backdropTheme: BackdropTheme;
 }
 
 function LoaderOverlay() {
@@ -73,6 +81,16 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
       }
     });
     bonesRef.current = found;
+  }, [gltf.scene]);
+
+  // The GLB's meshes are not watertight — the palms, and the shoulder and elbow
+  // sockets, stop at an open rim. Because the materials are DoubleSide those
+  // rims read as solid black voids (you see the unlit inside of the part), so
+  // close them before the model is ever shown. See capHoles.ts.
+  React.useEffect(() => {
+    gltf.scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) capBoundaryHoles(child.geometry);
+    });
   }, [gltf.scene]);
 
   // Process materials on load to ensure gold/metallic materials render correctly
@@ -202,7 +220,53 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
   );
 }
 
-const Hologram: React.FC<HologramProps> = ({ isListening, isSpeaking, isIdle }) => {
+// A 50° vertical fov shows about 0.93 × distance of world height. The posed
+// model stands ~4.3 units tall and ~2.8 wide at the scale used above, so a
+// landscape window frames it at 5.5 but a portrait phone has to pull back or the
+// arms and boots fall outside the frame.
+const FIT_DISTANCE_HEIGHT = 5.5;
+const FIT_DISTANCE_WIDTH = 3.45;
+
+function Rig() {
+  const camera = useThree((state) => state.camera);
+  const size = useThree((state) => state.size);
+  const controlsRef = useRef<React.ElementRef<typeof OrbitControls>>(null);
+  const appliedRef = useRef(0);
+
+  const aspect = size.width / Math.max(size.height, 1);
+  const distance = Math.max(FIT_DISTANCE_HEIGHT, FIT_DISTANCE_WIDTH / Math.max(aspect, 0.2));
+
+  React.useEffect(() => {
+    // Re-frame on a real layout change (rotation, window resize) but ignore the
+    // small height wobble a mobile address bar makes as it hides and reappears,
+    // which would otherwise nudge the camera every time the user scrolls.
+    if (Math.abs(distance - appliedRef.current) < 0.35) return;
+    appliedRef.current = distance;
+    // setLength keeps whatever angle the user has orbited to and changes only
+    // how far back the camera sits.
+    camera.position.setLength(distance);
+    controlsRef.current?.update();
+  }, [distance, camera]);
+
+  return (
+    <>
+      <PerspectiveCamera makeDefault position={[0, 0, FIT_DISTANCE_HEIGHT]} fov={50} />
+      <OrbitControls
+        ref={controlsRef}
+        enablePan={false}
+        enableDamping
+        dampingFactor={0.05}
+        rotateSpeed={0.5}
+        minDistance={2}
+        maxDistance={Math.max(7, distance + 2)}
+        minPolarAngle={Math.PI / 4}
+        maxPolarAngle={Math.PI / 1.5}
+      />
+    </>
+  );
+}
+
+const Hologram: React.FC<HologramViewProps> = ({ isListening, isSpeaking, isIdle, backdropTheme }) => {
   return (
     <div className="fixed inset-0 w-full h-full z-10">
       <Canvas
@@ -213,24 +277,16 @@ const Hologram: React.FC<HologramProps> = ({ isListening, isSpeaking, isIdle }) 
           toneMappingExposure: 1.6,
           outputColorSpace: THREE.SRGBColorSpace
         }}
-        dpr={[1, 2]}
+        dpr={[1, 1.75]}
         shadows
         className="touch-none"
       >
-        <PerspectiveCamera makeDefault position={[0, 0, 5.5]} fov={50} />
+        <Rig />
         <ambientLight intensity={0.9} />
         <directionalLight position={[5, 8, 5]} intensity={2.8} />
-        <directionalLight position={[-5, 3, -6]} intensity={1.4} color="#00bfff" />
-        <OrbitControls
-          enablePan={false}
-          enableDamping
-          dampingFactor={0.05}
-          rotateSpeed={0.5}
-          minDistance={2}
-          maxDistance={7}
-          minPolarAngle={Math.PI / 4}
-          maxPolarAngle={Math.PI / 1.5}
-        />
+        {/* Outside Suspense so the backdrop is already there while the model
+            streams in. It also supplies the theme-tinted rim light. */}
+        <HologramBackdrop theme={backdropTheme} />
         <Suspense fallback={<LoaderOverlay />}>
           <Environment preset="city" background={false} />
           <AccumulativeShadows temporal frames={60} alphaTest={0.85} opacity={0.8}>

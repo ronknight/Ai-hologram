@@ -7,8 +7,13 @@ import Hologram from './Hologram';
 import { MicIcon } from './icons/MicIcon';
 import { SendIcon } from './icons/SendIcon';
 
-const ChatView: React.FC = () => {
-  const { selectedModel, ollamaUrl, systemPrompt, temperature, triggerWord, connectionError } = useSettings();
+interface ChatViewProps {
+  /** False while another tab is showing; the view stays mounted but must not hold the microphone. */
+  active?: boolean;
+}
+
+const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
+  const { selectedModel, ollamaUrl, systemPrompt, temperature, triggerWord, connectionError, backdropTheme } = useSettings();
   const [textInput, setTextInput] = useState('');
   const [lastReply, setLastReply] = useState('');
 
@@ -38,24 +43,25 @@ const ChatView: React.FC = () => {
   const speechHook = useSpeech({
     triggerWord,
     onActivation: () => {
+      // Barge-in: cut off whatever the assistant is saying before listening.
       speechHook.stop();
       speechHook.startListening();
     },
     onTranscript: sendMessage,
   });
 
+  // These are stable across renders (the hook keeps the changing callbacks in
+  // refs), so the effect below only re-runs when something real changes.
+  const { startStandby, stop, permissionError, speechState } = speechHook;
+
   useEffect(() => {
-    if (!selectedModel || connectionError || speechHook.permissionError) {
-      speechHook.stop();
+    if (!active || !selectedModel || connectionError || permissionError) {
+      stop();
       return;
     }
-    speechHook.startStandby();
-    return () => speechHook.stop();
-    // speechHook is a fresh object every render; depending on it here would
-    // restart standby listening on every render instead of only when these
-    // three values actually change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedModel, connectionError, speechHook.permissionError]);
+    startStandby();
+    return () => stop();
+  }, [active, selectedModel, connectionError, permissionError, startStandby, stop]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,28 +70,45 @@ const ChatView: React.FC = () => {
   };
 
   const handleMicClick = () => {
-    if (speechHook.speechState === 'listening') {
-      speechHook.stop();
+    if (speechState === 'listening') {
+      stop();
     } else {
       speechHook.startListening();
     }
   };
 
+  const banner = permissionError || connectionError;
+
   return (
     <>
-      <Hologram isListening={speechHook.speechState === 'listening'} isSpeaking={speechHook.speechState === 'speaking'} isIdle={speechHook.speechState === 'idle'} />
+      <Hologram
+        isListening={speechState === 'listening'}
+        isSpeaking={speechState === 'speaking'}
+        isIdle={speechState === 'idle'}
+        backdropTheme={backdropTheme}
+      />
 
       {/* Voice is trigger-word activated and gives no feedback if it fails
           (permission denied, unsupported browser, etc.), so a typed message
           plus a manual mic button are the reliable way to talk to it. */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 p-6 flex flex-col items-center gap-3">
-        {(speechHook.permissionError || connectionError) && (
-          <p className="text-red-400 text-sm bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm">
-            {speechHook.permissionError || connectionError}
-          </p>
+      <div className="fixed bottom-0 left-0 right-0 z-40 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:p-6 flex flex-col items-center gap-2 sm:gap-3">
+        {banner && (
+          <div className="flex items-start gap-2 max-w-full text-red-400 text-xs sm:text-sm bg-black/60 pl-4 pr-2 py-2 rounded-2xl backdrop-blur-sm">
+            <span className="min-w-0 py-0.5">{banner}</span>
+            {permissionError && (
+              <button
+                type="button"
+                onClick={speechHook.dismissError}
+                aria-label="Dismiss microphone message"
+                className="shrink-0 px-2 rounded-full text-red-300 hover:text-white hover:bg-red-500/30 transition-colors"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         )}
         {lastReply && (
-          <p className="text-accent/90 text-sm bg-black/40 px-4 py-2 rounded-lg backdrop-blur-sm max-w-xl text-center">
+          <p className="text-accent/90 text-sm bg-black/40 px-4 py-2 rounded-lg backdrop-blur-sm max-w-xl max-h-32 overflow-y-auto text-center">
             {lastReply}
           </p>
         )}
@@ -93,8 +116,8 @@ const ChatView: React.FC = () => {
           <button
             type="button"
             onClick={handleMicClick}
-            aria-label={speechHook.speechState === 'listening' ? 'Stop listening' : 'Start listening'}
-            className={`p-3 rounded-full transition-colors ${speechHook.speechState === 'listening' ? 'bg-cyan text-primary' : 'bg-secondary/80 text-accent hover:bg-secondary'}`}
+            aria-label={speechState === 'listening' ? 'Stop listening' : 'Start listening'}
+            className={`shrink-0 p-3 rounded-full transition-colors ${speechState === 'listening' ? 'bg-cyan text-primary' : 'bg-secondary/80 text-accent hover:bg-secondary'}`}
           >
             <MicIcon className="w-5 h-5" />
           </button>
@@ -103,12 +126,13 @@ const ChatView: React.FC = () => {
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
             placeholder="Type a message..."
-            className="flex-1 px-4 py-3 bg-secondary/80 border border-accent/30 rounded-full text-gray-200 focus:outline-none focus:ring-2 focus:ring-cyan"
+            /* text-base keeps iOS Safari from zooming the page in on focus. */
+            className="min-w-0 flex-1 px-4 py-3 text-base bg-secondary/80 border border-accent/30 rounded-full text-gray-200 focus:outline-none focus:ring-2 focus:ring-cyan"
           />
           <button
             type="submit"
             aria-label="Send message"
-            className="p-3 rounded-full bg-accent/80 hover:bg-cyan text-white transition-colors"
+            className="shrink-0 p-3 rounded-full bg-accent/80 hover:bg-cyan text-white transition-colors"
           >
             <SendIcon className="w-5 h-5" />
           </button>

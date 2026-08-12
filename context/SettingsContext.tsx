@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { Settings, OllamaModel } from '../types';
+import { Settings, OllamaModel, BackdropTheme } from '../types';
 import { getModels } from '../services/ollama';
 
 interface SettingsContextType extends Settings {
@@ -9,6 +9,7 @@ interface SettingsContextType extends Settings {
   setSystemPrompt: (prompt: string) => void;
   setTemperature: (temp: number) => void;
   setTriggerWord: (word: string) => void;
+  setBackdropTheme: (theme: BackdropTheme) => void;
   availableModels: OllamaModel[];
   refreshModels: () => Promise<void>;
   isModelLoading: boolean;
@@ -21,6 +22,7 @@ const defaultSettings: Settings = {
   systemPrompt: 'You are a helpful and concise AI assistant.',
   temperature: 0.7,
   triggerWord: 'hey assistant',
+  backdropTheme: 'nature',
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -79,6 +81,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     setSystemPrompt: (prompt: string) => setSettings(s => ({ ...s, systemPrompt: prompt })),
     setTemperature: (temp: number) => setSettings(s => ({...s, temperature: temp})),
     setTriggerWord: (word: string) => setSettings(s => ({ ...s, triggerWord: word })),
+    setBackdropTheme: (theme: BackdropTheme) => setSettings(s => ({ ...s, backdropTheme: theme })),
     availableModels,
     refreshModels,
     isModelLoading,
