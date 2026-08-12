@@ -4,7 +4,6 @@ import {
   useGLTF,
   Html,
   useProgress,
-  Environment,
   AccumulativeShadows,
   RandomizedLight,
   Center,
@@ -288,7 +287,6 @@ const Hologram: React.FC<HologramViewProps> = ({ isListening, isSpeaking, isIdle
             streams in. It also supplies the theme-tinted rim light. */}
         <HologramBackdrop theme={backdropTheme} />
         <Suspense fallback={<LoaderOverlay />}>
-          <Environment preset="city" background={false} />
           <AccumulativeShadows temporal frames={60} alphaTest={0.85} opacity={0.8}>
             <RandomizedLight amount={8} radius={10} ambient={0.5} position={[5, 5, -10]} />
           </AccumulativeShadows>

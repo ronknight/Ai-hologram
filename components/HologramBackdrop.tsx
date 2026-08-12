@@ -238,16 +238,41 @@ function Motes({ preset }: { preset: BackdropPreset }) {
   );
 }
 
+/** Suspends while its panorama downloads, so it must sit under a Suspense boundary. */
+function EnvironmentLayer({ preset }: { preset: BackdropPreset }) {
+  if (!preset.environment) {
+    // The hand-drawn themes still want image-based lighting on the armour;
+    // borrow a neutral panorama for that without drawing it.
+    return <Environment preset={FALLBACK_LIGHTING_PRESET} background={false} />;
+  }
+
+  return (
+    <Environment
+      preset={preset.environment}
+      background
+      backgroundBlurriness={preset.backgroundBlur}
+      backgroundIntensity={preset.backgroundIntensity}
+    />
+  );
+}
+
 export default function HologramBackdrop({ theme }: { theme: BackdropTheme }) {
-  const preset = BACKDROP_PRESETS[theme] ?? BACKDROP_PRESETS.futuristic;
+  const preset = BACKDROP_PRESETS[theme] ?? BACKDROP_PRESETS.nature;
+  const usesPanorama = preset.environment !== null;
 
   return (
     <>
-      <Dome preset={preset} />
+      {/* Drawn only when no panorama will cover it. A panorama is painted as
+          scene.background, which the dome would otherwise hide. */}
+      {!usesPanorama && <Dome preset={preset} />}
+      <Suspense fallback={usesPanorama ? <Dome preset={preset} /> : null}>
+        <EnvironmentLayer preset={preset} />
+      </Suspense>
       <Motes preset={preset} />
       {/* Rim light tinted to the backdrop so the figure sits in its scene
-          instead of being lit for a different one. */}
-      <directionalLight position={[-5, 3, -6]} intensity={1.4} color={preset.glow} />
+          instead of being lit for a different one. Photographic themes need
+          little of it — their panorama already does the work. */}
+      <directionalLight position={[-5, 3, -6]} intensity={preset.rimIntensity} color={preset.glow} />
     </>
   );
 }

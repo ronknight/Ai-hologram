@@ -182,7 +182,7 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                     <span
                       className="w-9 h-9 shrink-0 rounded-md border border-black/40"
                       style={{
-                        background: `linear-gradient(160deg, ${preset.domeHigh}, ${preset.domeLow})`,
+                        background: `linear-gradient(160deg, ${preset.swatchFrom}, ${preset.swatchTo})`,
                         boxShadow: `inset 0 0 10px ${preset.glow}66`,
                       }}
                     />
