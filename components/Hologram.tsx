@@ -83,29 +83,34 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
           const material = child.material as THREE.MeshStandardMaterial;
 
           // The model (an XPS conversion) is built from a base skin (25_*,
-          // black with emissive green chest core and eyes) plus duplicate-
-          // geometry recolor layers whose RGBA textures are cutout overlays.
-          // The official Sketchfab render composites base + gold head/gloves
-          // + red body/boots, so recreate that stack and hide the rest.
+          // black with emissive green chest core and eyes) plus two
+          // duplicate-geometry trim layers (26_/27_ gold and red) whose RGBA
+          // textures are cutout decals. Gold and red are not alternate
+          // choices per body part — each covers a near-disjoint slice of the
+          // surface (verified against the actual texture alpha channels:
+          // base+gold+red union to ~100% coverage per part, with <10%
+          // overlap between gold and red). Hiding either one leaves the
+          // part's uncovered slice showing through as a hole, so all three
+          // layers must render together.
           const matName = material.name.toLowerCase();
           const isBase = matName.startsWith('25_');
-          const isOverlay = ['27_headgold', '26_glovesgold', '27_bodyred', '27_bootsred']
-            .some((p) => matName.startsWith(p));
-          child.visible = isBase || isOverlay;
-          if (!child.visible) return;
+          const isOverlay = !isBase;
+          const isGoldOverlay = isOverlay && matName.includes('gold');
 
           // Render the layers as alpha-tested cutouts instead of the exported
           // BLEND mode (which disables depth-write and looks ghosted). The
           // overlays get a polygon offset so they beat the co-planar base in
-          // the depth test wherever their texture is opaque.
+          // the depth test wherever their texture is opaque. Gold and red
+          // get distinct offsets so their small mutual overlap doesn't
+          // z-fight.
           material.transparent = false;
           material.opacity = 1;
           material.depthWrite = true;
           material.alphaTest = isOverlay ? 0.5 : 0.01;
           if (isOverlay) {
             material.polygonOffset = true;
-            material.polygonOffsetFactor = -1;
-            material.polygonOffsetUnits = -1;
+            material.polygonOffsetFactor = isGoldOverlay ? -1 : -2;
+            material.polygonOffsetUnits = isGoldOverlay ? -1 : -2;
           }
           // The source textures are authored for matte diffuse shading, but
           // glTF defaults metalness to 1, which renders as dark chrome.
@@ -143,7 +148,7 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
       const entry = bones[key];
       if (entry) entry.bone.rotation[axis] = entry.rest[axis] + Math.sin(t * speed + phase) * amount;
     };
-    // one-directional bend in [0, amount], for joints like elbows and knees
+    // one-directional bend in [0, amount], for joints like knees
     const bend = (key: string, axis: 'x' | 'y' | 'z', amount: number, speed: number, phase = 0) => {
       const entry = bones[key];
       if (entry) entry.bone.rotation[axis] = entry.rest[axis] + (Math.sin(t * speed + phase) + 1) * 0.5 * amount;
@@ -157,11 +162,14 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
     sway('neckLower', 'y', 0.12 * energy, 0.5);
     sway('neckUpper', 'y', 0.22 * energy, 0.5, 0.5);
     sway('neckUpper', 'x', 0.07, 0.8, 1.2);
-    // arms: shoulder sway plus alternating elbow bends
+    // arms: shoulder sway only. A chunk of the 25_Body (torso) mesh near
+    // the shoulder is skin-weighted 100% to the elbow joint instead of the
+    // shoulder joint (a weight-painting defect in the source asset), so any
+    // elbow rotation drags that torso patch away from the rest of the body
+    // and tears a visible hole open at the shoulder/upper-arm. Don't animate
+    // the elbow bone until the asset's skin weights are fixed.
     sway('leftShoulder', 'z', 0.09 * energy, 1.1);
     sway('rightShoulder', 'z', 0.09 * energy, 1.1, Math.PI);
-    bend('leftElbow', 'y', 0.35 * energy, 1.2);
-    bend('rightElbow', 'y', -0.35 * energy, 1.2, Math.PI);
     // legs: subtle weight shifting
     sway('leftThigh', 'z', 0.035, 0.6);
     sway('rightThigh', 'z', -0.035, 0.6);
