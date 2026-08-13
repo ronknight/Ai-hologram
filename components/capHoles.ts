@@ -18,6 +18,9 @@ import * as THREE from 'three';
 
 const QUANT = 1e4;
 
+/** A rim wider than this fraction of its mesh is a structural opening, not a hole. */
+const MAX_RELATIVE_RIM_SPAN = 0.12;
+
 /** Maps every vertex to the lowest index sharing its position (UV seams split otherwise-shared vertices). */
 function buildWeldMap(pos: THREE.BufferAttribute): Int32Array {
   const rep = new Int32Array(pos.count);
@@ -172,11 +175,26 @@ export function capBoundaryHoles(geometry: THREE.BufferGeometry): number {
   const loops = findBoundaryLoops(index as THREE.BufferAttribute, buildWeldMap(pos));
   if (!loops.length) return 0;
 
+  const meshBox = new THREE.Box3().setFromBufferAttribute(pos);
+  const meshSpan = meshBox.getSize(new THREE.Vector3()).length();
+  const loopBox = new THREE.Box3();
+  const corner = new THREE.Vector3();
+
   const added: number[] = [];
   for (const loop of loops) {
-    // A rim this long is a mesh-wide seam rather than a hole; a flat cap across
-    // it would be more conspicuous than leaving it be.
+    // A rim this long is a mesh-wide seam rather than a hole.
     if (loop.length > 64) continue;
+
+    // Only close rims that are small next to the part they sit in. A cap is a
+    // roughly flat sheet, which passes unnoticed across a pinhole but not
+    // across a structural opening: the palm rims are nearly the size of the
+    // whole hand, and capping those replaced a dark gap with an equally dark —
+    // and larger — flat polygon, because the rim's UVs sample black texture.
+    // Those openings are better left to the geometry that overlaps them.
+    loopBox.makeEmpty();
+    for (const v of loop) loopBox.expandByPoint(corner.fromBufferAttribute(pos, v));
+    if (loopBox.getSize(corner).length() > meshSpan * MAX_RELATIVE_RIM_SPAN) continue;
+
     for (const tri of triangulateLoop(loop, pos)) added.push(tri[0], tri[1], tri[2]);
   }
   if (!added.length) return 0;
