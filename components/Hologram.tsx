@@ -87,6 +87,7 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
   // rims read as solid black voids (you see the unlit inside of the part), so
   // close them before the model is ever shown. See capHoles.ts.
   React.useEffect(() => {
+    if (new URLSearchParams(location.search).has('nocap')) return;
     gltf.scene.traverse((child) => {
       if (child instanceof THREE.Mesh && child.geometry) capBoundaryHoles(child.geometry);
     });
