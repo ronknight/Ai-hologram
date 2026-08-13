@@ -225,13 +225,20 @@ function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
 // landscape window frames it at 5.5 but a portrait phone has to pull back or the
 // arms and boots fall outside the frame.
 const FIT_DISTANCE_HEIGHT = 5.5;
-const FIT_DISTANCE_WIDTH = 3.45;
+const FIT_DISTANCE_WIDTH = 3.8;
 
 function Rig() {
   const camera = useThree((state) => state.camera);
   const size = useThree((state) => state.size);
   const controlsRef = useRef<React.ElementRef<typeof OrbitControls>>(null);
-  const appliedRef = useRef(0);
+  // Keyed by camera as well as distance: on the first render this hook sees
+  // R3F's default camera, and only afterwards the one PerspectiveCamera
+  // installs via makeDefault. Recording the distance alone would mark the job
+  // done against the throwaway camera and never move the real one.
+  const appliedRef = useRef<{ camera: THREE.Camera | null; distance: number }>({
+    camera: null,
+    distance: 0,
+  });
 
   const aspect = size.width / Math.max(size.height, 1);
   const distance = Math.max(FIT_DISTANCE_HEIGHT, FIT_DISTANCE_WIDTH / Math.max(aspect, 0.2));
@@ -240,8 +247,9 @@ function Rig() {
     // Re-frame on a real layout change (rotation, window resize) but ignore the
     // small height wobble a mobile address bar makes as it hides and reappears,
     // which would otherwise nudge the camera every time the user scrolls.
-    if (Math.abs(distance - appliedRef.current) < 0.35) return;
-    appliedRef.current = distance;
+    const applied = appliedRef.current;
+    if (applied.camera === camera && Math.abs(distance - applied.distance) < 0.35) return;
+    appliedRef.current = { camera, distance };
     // setLength keeps whatever angle the user has orbited to and changes only
     // how far back the camera sits.
     camera.position.setLength(distance);

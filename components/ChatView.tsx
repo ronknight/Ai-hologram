@@ -91,10 +91,12 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
       {/* Voice is trigger-word activated and gives no feedback if it fails
           (permission denied, unsupported browser, etc.), so a typed message
           plus a manual mic button are the reliable way to talk to it. */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:p-6 flex flex-col items-center gap-2 sm:gap-3">
+      {/* w-full + overflow-hidden keeps a long error string from pushing the
+          whole bar wider than a phone screen and shunting the send button off. */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 w-full overflow-hidden p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:p-6 flex flex-col items-center gap-2 sm:gap-3">
         {banner && (
-          <div className="flex items-start gap-2 max-w-full text-red-400 text-xs sm:text-sm bg-black/60 pl-4 pr-2 py-2 rounded-2xl backdrop-blur-sm">
-            <span className="min-w-0 py-0.5">{banner}</span>
+          <div className="flex items-start gap-2 w-full max-w-xl text-red-400 text-xs sm:text-sm bg-black/60 pl-4 pr-2 py-2 rounded-2xl backdrop-blur-sm">
+            <span className="min-w-0 flex-1 py-0.5 break-words">{banner}</span>
             {permissionError && (
               <button
                 type="button"

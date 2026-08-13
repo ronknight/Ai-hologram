@@ -26,16 +26,19 @@ const App: React.FC = () => {
         </div>
 
         <header className="absolute top-0 left-0 right-0 z-30 p-4 sm:p-6 flex justify-between items-center gap-2">
-            <div className="flex items-center gap-4 sm:gap-8 min-w-0">
+            <div className="flex items-center gap-3 sm:gap-8 min-w-0">
               <button
                 onClick={() => setView('chat')}
-                className={`text-lg sm:text-2xl font-bold whitespace-nowrap transition-all duration-300 ${view === 'chat' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
+                className={`text-base sm:text-2xl font-bold whitespace-nowrap transition-all duration-300 ${view === 'chat' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
               >
-                AI Voice Assistant
+                {/* The full name plus Playground plus the gear does not fit a
+                    narrow phone, and pushes the gear off screen. */}
+                <span className="sm:hidden">Assistant</span>
+                <span className="hidden sm:inline">AI Voice Assistant</span>
               </button>
               <button
                 onClick={() => setView('playground')}
-                className={`text-base sm:text-xl font-bold whitespace-nowrap transition-all duration-300 ${view === 'playground' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
+                className={`text-sm sm:text-xl font-bold whitespace-nowrap transition-all duration-300 ${view === 'playground' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
               >
                 Playground
               </button>
