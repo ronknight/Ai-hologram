@@ -7,6 +7,16 @@ import OllamaPlayground from './components/OllamaPlayground';
 
 type View = 'chat' | 'playground';
 
+const VIEWS: { id: View; label: string; shortLabel: string }[] = [
+  { id: 'chat', label: 'AI Voice Assistant', shortLabel: 'Assistant' },
+  { id: 'playground', label: 'Playground', shortLabel: 'Playground' },
+];
+
+const NAV_STYLES = {
+  active: 'text-cyan bg-cyan/10 shadow-[0_0_16px_theme(colors.glow)]',
+  inactive: 'text-accent/60 hover:text-accent hover:bg-accent/5',
+};
+
 const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [view, setView] = useState<View>('chat');
@@ -16,41 +26,37 @@ const App: React.FC = () => {
       <div className="relative min-h-[100dvh] bg-primary font-sans overflow-hidden">
         {/* Futuristic Background Elements */}
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,theme(colors.secondary)_1px,transparent_1px),linear-gradient(to_bottom,theme(colors.secondary)_1px,transparent_1px)] bg-[size:3rem_3rem] opacity-50"></div>
+          {/* Radial glow behind the hologram */}
+          <div className="absolute left-1/2 top-1/3 h-[60vmin] w-[60vmin] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/10 blur-[120px]"></div>
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,theme(colors.secondary)_1px,transparent_1px),linear-gradient(to_bottom,theme(colors.secondary)_1px,transparent_1px)] bg-[size:3rem_3rem] opacity-50 [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]"></div>
           <div className="absolute inset-0 bg-gradient-to-b from-primary via-primary/80 to-primary"></div>
-           {/* Corner Brackets */}
-          <div className="absolute top-2 left-2 w-10 h-10 sm:top-4 sm:left-4 sm:w-16 sm:h-16 border-t-2 border-l-2 border-accent/50 rounded-tl-lg"></div>
-          <div className="absolute top-2 right-2 w-10 h-10 sm:top-4 sm:right-4 sm:w-16 sm:h-16 border-t-2 border-r-2 border-accent/50 rounded-tr-lg"></div>
-          <div className="absolute bottom-2 left-2 w-10 h-10 sm:bottom-4 sm:left-4 sm:w-16 sm:h-16 border-b-2 border-l-2 border-accent/50 rounded-bl-lg"></div>
-          <div className="absolute bottom-2 right-2 w-10 h-10 sm:bottom-4 sm:right-4 sm:w-16 sm:h-16 border-b-2 border-r-2 border-accent/50 rounded-br-lg"></div>
         </div>
 
-        <header className="absolute top-0 left-0 right-0 z-30 p-4 sm:p-6 flex justify-between items-center gap-2">
-            <div className="flex items-center gap-3 sm:gap-8 min-w-0">
-              <button
-                onClick={() => setView('chat')}
-                className={`text-base sm:text-2xl font-bold whitespace-nowrap transition-all duration-300 ${view === 'chat' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
-              >
-                {/* The full name plus Playground plus the gear does not fit a
-                    narrow phone, and pushes the gear off screen. */}
-                <span className="sm:hidden">Assistant</span>
-                <span className="hidden sm:inline">AI Voice Assistant</span>
-              </button>
-              <button
-                onClick={() => setView('playground')}
-                className={`text-sm sm:text-xl font-bold whitespace-nowrap transition-all duration-300 ${view === 'playground' ? 'text-accent drop-shadow-[0_0_8px_theme(colors.accent)]' : 'text-accent/60 hover:text-accent/90'}`}
-              >
-                Playground
-              </button>
+        <header className="fixed top-3 sm:top-4 left-1/2 z-30 w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 animate-rise-in">
+          <nav className="flex items-center gap-2 rounded-full border border-accent/15 bg-secondary/70 px-2 py-1.5 shadow-lg shadow-black/40 backdrop-blur-md">
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+              {VIEWS.map(({ id, label, shortLabel }) => (
+                <button
+                  key={id}
+                  onClick={() => setView(id)}
+                  aria-current={view === id ? 'page' : undefined}
+                  className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan sm:text-base ${
+                    view === id ? NAV_STYLES.active : NAV_STYLES.inactive
+                  }`}
+                >
+                  <span className="sm:hidden">{shortLabel}</span>
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
             </div>
-            {/* Settings Button */}
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="shrink-0 p-2 sm:p-3 rounded-full text-accent/70 hover:text-cyan hover:bg-secondary/50 focus:outline-none focus:ring-2 focus:ring-cyan transition-all duration-300"
+              className="shrink-0 rounded-full p-2 text-accent/70 transition-all duration-300 hover:bg-accent/10 hover:text-cyan focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
               aria-label="Open Settings"
             >
-              <SettingsIcon className="w-6 h-6 sm:w-7 sm:h-7" />
+              <SettingsIcon className="w-5 h-5" />
             </button>
+          </nav>
         </header>
 
         {/* Both views stay mounted. Swapping them out tears down the WebGL
@@ -64,8 +70,8 @@ const App: React.FC = () => {
             <OllamaPlayground />
           </div>
         </main>
-        
-        <SettingsModal 
+
+        <SettingsModal
           isOpen={isSettingsOpen}
           onClose={() => setIsSettingsOpen(false)}
         />

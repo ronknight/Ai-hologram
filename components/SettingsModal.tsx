@@ -33,7 +33,7 @@ const Field: FC<{ label: string; htmlFor?: string; help?: string; children: Reac
 );
 
 const inputStyles =
-  'w-full min-w-0 px-4 py-2 text-base bg-primary/70 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan focus:border-cyan transition-colors';
+  'w-full min-w-0 px-4 py-2 text-base bg-primary/60 border border-gray-600/80 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan/60 focus:border-cyan transition-colors placeholder:text-gray-600';
 
 const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const {
@@ -73,7 +73,7 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div
-      className="fixed inset-0 bg-primary/70 backdrop-blur-md flex items-center justify-center z-50 p-4 transition-opacity duration-300"
+      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-primary/70 p-4 backdrop-blur-md"
       onClick={onClose}
     >
       <div
@@ -82,7 +82,7 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         aria-modal="true"
         aria-labelledby="settings-title"
         tabIndex={-1}
-        className="bg-secondary/80 border border-accent/30 rounded-lg shadow-2xl shadow-accent/10 p-4 sm:p-8 w-full max-w-2xl max-h-[90dvh] overflow-y-auto text-gray-200 transform transition-all duration-300 scale-100 focus:outline-none"
+        className="max-h-[90dvh] w-full max-w-2xl animate-pop-in overflow-y-auto rounded-2xl border border-accent/20 bg-secondary/85 p-4 text-gray-200 shadow-2xl shadow-black/60 focus:outline-none sm:p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 mb-6">
@@ -114,7 +114,7 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
               <button
                 onClick={() => refreshModels()}
                 disabled={isModelLoading}
-                className="shrink-0 whitespace-nowrap px-4 py-2 bg-accent/80 hover:bg-cyan text-white rounded-md transition-colors flex items-center justify-center disabled:bg-gray-500 disabled:text-gray-300"
+                className="flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-accent/80 px-4 py-2 text-white transition-all duration-300 hover:bg-cyan hover:shadow-[0_0_16px_theme(colors.glow)] disabled:bg-gray-500/60 disabled:text-gray-300 disabled:hover:shadow-none"
               >
                 {isModelLoading ? <SpinnerIcon /> : 'Test & Refresh'}
               </button>
@@ -222,7 +222,7 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         <div className="flex justify-end pt-2">
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-gray-600/80 hover:bg-gray-500/80 rounded-md transition-colors"
+            className="rounded-lg border border-gray-600/80 bg-gray-600/60 px-6 py-2 transition-colors hover:bg-gray-500/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
           >
             Close
           </button>

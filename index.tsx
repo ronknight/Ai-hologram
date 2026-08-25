@@ -18,4 +18,4 @@ root.render(
 );
 
 console.log('React app rendered');
-6
+
