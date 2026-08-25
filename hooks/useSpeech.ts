@@ -76,6 +76,14 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
   const sentenceQueueRef = useRef<string[]>([]);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const wakeWordDetectedRef = useRef(false);
+  // Text streamed from the model arrives in token-sized chunks. It is held
+  // here until a sentence boundary shows up, so TTS speaks whole sentences
+  // instead of restarting the synthesis engine for every fragment.
+  const streamBufferRef = useRef('');
+  // Resolving voices is asynchronous (the list populates after 'voiceschanged'),
+  // so the picked voice is cached here rather than looked up per utterance.
+  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const warmedUpRef = useRef(false);
 
   // Mirrors of state that event handlers read. Recognition callbacks outlive the
   // render that installed them, so reading `speechState` there sees a stale
@@ -104,6 +112,35 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
   }, []);
 
   // --- Speech Synthesis (TTS) ---
+  // Chrome resolves voices lazily; grabbing one per utterance can stall the
+  // first speak. Pick a local English voice once and reuse it.
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const pickVoice = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices.length) return;
+      voiceRef.current =
+        voices.find((v) => v.lang.startsWith('en') && v.localService) ||
+        voices.find((v) => v.lang.startsWith('en')) ||
+        voices[0];
+    };
+    pickVoice();
+    window.speechSynthesis.addEventListener('voiceschanged', pickVoice);
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', pickVoice);
+  }, []);
+
+  // Chrome compiles its synthesis engine lazily, so the very first utterance
+  // after page load carries a multi-second warm-up penalty. Burn that off on
+  // a silent utterance during the user's mic gesture instead of mid-reply.
+  const warmUpSpeech = useCallback(() => {
+    if (warmedUpRef.current || !window.speechSynthesis) return;
+    warmedUpRef.current = true;
+    const warm = new SpeechSynthesisUtterance(' ');
+    warm.volume = 0;
+    if (voiceRef.current) warm.voice = voiceRef.current;
+    window.speechSynthesis.speak(warm);
+  }, []);
+
   const processSentenceQueue = useCallback(() => {
     if (speakingRef.current) return;
 
@@ -117,6 +154,8 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     applyState('speaking');
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    if (voiceRef.current) utterance.voice = voiceRef.current;
+    utterance.rate = 1.05;
     currentUtteranceRef.current = utterance;
 
     const advance = () => {
@@ -136,8 +175,26 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     processSentenceQueue();
   }, [processSentenceQueue]);
 
+  // Feed one streamed chunk. Only complete sentences are enqueued; the
+  // trailing fragment stays buffered until more text or flushSpeak() arrives.
+  const speakStream = useCallback((chunk: string) => {
+    streamBufferRef.current += chunk;
+    const complete = streamBufferRef.current.match(/[\s\S]*?[.!?]+(?=\s|$)/g);
+    if (complete) {
+      const spoken = complete.join('');
+      streamBufferRef.current = streamBufferRef.current.slice(spoken.length);
+      speak(spoken);
+    }
+  }, [speak]);
+
+  const flushSpeak = useCallback(() => {
+    if (streamBufferRef.current.trim()) speak(streamBufferRef.current);
+    streamBufferRef.current = '';
+  }, [speak]);
+
   const stopSpeaking = useCallback(() => {
     sentenceQueueRef.current = [];
+    streamBufferRef.current = '';
     if (currentUtteranceRef.current) {
       currentUtteranceRef.current.onend = null;
       currentUtteranceRef.current.onerror = null;
@@ -286,6 +343,7 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
 
     modeRef.current = 'listening';
     applyState('listening');
+    warmUpSpeech();
 
     const recognition = recognitionRef.current;
     recognition.continuous = false;
@@ -344,6 +402,8 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     startStandby,
     startListening,
     speak,
+    speakStream,
+    flushSpeak,
     stop,
     dismissError,
   };

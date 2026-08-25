@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageRole } from '../types';
 import { useSettings } from '../context/SettingsContext';
 import { useSpeech } from '../hooks/useSpeech';
@@ -12,14 +12,27 @@ interface ChatViewProps {
   active?: boolean;
 }
 
+const STATUS_TEXT: Record<string, string> = {
+  standby: 'Say the trigger word',
+  listening: 'Listening…',
+  speaking: 'Speaking…',
+};
+
 const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
   const { selectedModel, ollamaUrl, systemPrompt, temperature, triggerWord, connectionError, backdropTheme } = useSettings();
   const [textInput, setTextInput] = useState('');
   const [lastReply, setLastReply] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  // Guards against a completed stream flushing into a request that was
+  // already superseded (barge-in or a newer message).
+  const requestSeqRef = useRef(0);
 
-  const sendMessage = (text: string) => {
+  const sendMessage = useCallback((text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || isStreaming) return;
+
+    const seq = ++requestSeqRef.current;
+    setIsStreaming(true);
     setLastReply('');
     generateChatStream(
       ollamaUrl,
@@ -27,18 +40,27 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
       [{ role: MessageRole.USER, content: trimmed }],
       systemPrompt,
       temperature,
+      // Buffer streamed tokens and only enqueue complete sentences, so TTS
+      // speaks whole sentences instead of restarting per fragment.
       (chunk) => {
+        if (seq !== requestSeqRef.current) return;
         setLastReply((prev) => prev + chunk);
-        speechHook.speak(chunk);
+        speechHookRef.current?.speakStream(chunk);
       },
-      () => {},
       () => {
+        if (seq !== requestSeqRef.current) return;
+        speechHookRef.current?.flushSpeak();
+        setIsStreaming(false);
+      },
+      () => {
+        if (seq !== requestSeqRef.current) return;
         const errorMessage = 'Sorry, I encountered an error.';
         setLastReply(errorMessage);
-        speechHook.speak(errorMessage);
+        speechHookRef.current?.speak(errorMessage);
+        setIsStreaming(false);
       }
     );
-  };
+  }, [isStreaming, ollamaUrl, selectedModel, systemPrompt, temperature]);
 
   const speechHook = useSpeech({
     triggerWord,
@@ -49,6 +71,10 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
     },
     onTranscript: sendMessage,
   });
+  // The hook result is a fresh object every render; keeping the latest one in
+  // a ref lets sendMessage's stream callbacks stay referentially stable.
+  const speechHookRef = useRef(speechHook);
+  speechHookRef.current = speechHook;
 
   // These are stable across renders (the hook keeps the changing callbacks in
   // refs), so the effect below only re-runs when something real changes.
@@ -78,6 +104,8 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
   };
 
   const banner = permissionError || connectionError;
+  const statusText =
+    isStreaming && speechState !== 'speaking' ? 'Thinking…' : STATUS_TEXT[speechState];
 
   return (
     <>
@@ -109,6 +137,16 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
             )}
           </div>
         )}
+        {statusText && (
+          <p
+            aria-live="polite"
+            className={`text-xs uppercase tracking-[0.2em] px-3 py-1 rounded-full bg-black/40 backdrop-blur-sm ${
+              speechState === 'speaking' ? 'text-cyan animate-pulse' : 'text-accent/70'
+            }`}
+          >
+            {statusText}
+          </p>
+        )}
         {lastReply && (
           <p className="text-accent/90 text-sm bg-black/40 px-4 py-2 rounded-lg backdrop-blur-sm max-w-xl max-h-32 overflow-y-auto text-center">
             {lastReply}
@@ -118,8 +156,11 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
           <button
             type="button"
             onClick={handleMicClick}
+            disabled={isStreaming}
             aria-label={speechState === 'listening' ? 'Stop listening' : 'Start listening'}
-            className={`shrink-0 p-3 rounded-full transition-colors ${speechState === 'listening' ? 'bg-cyan text-primary' : 'bg-secondary/80 text-accent hover:bg-secondary'}`}
+            className={`shrink-0 p-3 rounded-full transition-colors disabled:opacity-50 ${
+              speechState === 'listening' ? 'bg-cyan text-primary' : 'bg-secondary/80 text-accent hover:bg-secondary'
+            }`}
           >
             <MicIcon className="w-5 h-5" />
           </button>
@@ -133,8 +174,9 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
           />
           <button
             type="submit"
+            disabled={isStreaming || !textInput.trim()}
             aria-label="Send message"
-            className="shrink-0 p-3 rounded-full bg-accent/80 hover:bg-cyan text-white transition-colors"
+            className="shrink-0 p-3 rounded-full bg-accent/80 hover:bg-cyan text-white transition-colors disabled:opacity-50 disabled:hover:bg-accent/80"
           >
             <SendIcon className="w-5 h-5" />
           </button>

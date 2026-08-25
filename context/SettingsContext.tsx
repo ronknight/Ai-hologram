@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Settings, OllamaModel, BackdropTheme } from '../types';
 import { getModels } from '../services/ollama';
+import { BACKDROP_ORDER } from '../components/backdropPresets';
 
 interface SettingsContextType extends Settings {
   setOllamaUrl: (url: string) => void;
@@ -25,22 +26,61 @@ const defaultSettings: Settings = {
   backdropTheme: 'nature',
 };
 
+/** Only http(s) origins may be used as an API base; anything else (e.g. a
+    javascript: or data: URL pasted into settings) falls back to the default. */
+export function sanitizeOllamaUrl(raw: unknown): string {
+  if (typeof raw !== 'string') return defaultSettings.ollamaUrl;
+  try {
+    const url = new URL(raw.trim());
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+    }
+  } catch {
+    // Not parseable; fall through to the default.
+  }
+  return defaultSettings.ollamaUrl;
+}
+
+const STRING_LIMITS = {
+  selectedModel: 200,
+  systemPrompt: 4000,
+  triggerWord: 80,
+} as const;
+
+/** Re-validated field-by-field: localStorage content is untrusted input and
+    older versions of the app may have stored malformed values. */
+function loadSettings(): Settings {
+  try {
+    const savedSettings = localStorage.getItem('ai-chat-settings');
+    if (!savedSettings) return defaultSettings;
+    const parsed = JSON.parse(savedSettings) as Partial<Settings>;
+    const temperature =
+      typeof parsed.temperature === 'number' && Number.isFinite(parsed.temperature)
+        ? Math.min(2, Math.max(0, parsed.temperature))
+        : defaultSettings.temperature;
+    const clampStr = (value: unknown, key: keyof typeof STRING_LIMITS, fallback: string) =>
+      typeof value === 'string' ? value.slice(0, STRING_LIMITS[key]) : fallback;
+    const theme = BACKDROP_ORDER.includes(parsed.backdropTheme as BackdropTheme)
+      ? (parsed.backdropTheme as BackdropTheme)
+      : defaultSettings.backdropTheme;
+    return {
+      ollamaUrl: sanitizeOllamaUrl(parsed.ollamaUrl),
+      selectedModel: clampStr(parsed.selectedModel, 'selectedModel', defaultSettings.selectedModel),
+      systemPrompt: clampStr(parsed.systemPrompt, 'systemPrompt', defaultSettings.systemPrompt),
+      temperature,
+      triggerWord: clampStr(parsed.triggerWord, 'triggerWord', defaultSettings.triggerWord).toLowerCase(),
+      backdropTheme: theme,
+    };
+  } catch (error) {
+    console.error('Failed to load settings from localStorage', error);
+    return defaultSettings;
+  }
+}
+
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [settings, setSettings] = useState<Settings>(() => {
-    try {
-      const savedSettings = localStorage.getItem('ai-chat-settings');
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings);
-        // Ensure default values for any missing keys
-        return { ...defaultSettings, ...parsed };
-      }
-    } catch (error) {
-      console.error('Failed to load settings from localStorage', error);
-    }
-    return defaultSettings;
-  });
+  const [settings, setSettings] = useState<Settings>(loadSettings);
 
   const [availableModels, setAvailableModels] = useState<OllamaModel[]>([]);
   const [isModelLoading, setIsModelLoading] = useState(true);
@@ -76,7 +116,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const value = {
     ...settings,
-    setOllamaUrl: (url: string) => setSettings(s => ({ ...s, ollamaUrl: url })),
+    setOllamaUrl: (url: string) => setSettings(s => ({ ...s, ollamaUrl: sanitizeOllamaUrl(url) })),
     setSelectedModel: (model: string) => setSettings(s => ({ ...s, selectedModel: model })),
     setSystemPrompt: (prompt: string) => setSettings(s => ({ ...s, systemPrompt: prompt })),
     setTemperature: (temp: number) => setSettings(s => ({...s, temperature: temp})),

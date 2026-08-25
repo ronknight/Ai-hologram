@@ -1,5 +1,5 @@
 
-import React, { FC, ReactNode } from 'react';
+import React, { FC, ReactNode, useEffect, useRef } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { SpinnerIcon } from './icons/SpinnerIcon';
 import { BACKDROP_ORDER, BACKDROP_PRESETS } from './backdropPresets';
@@ -55,6 +55,20 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     connectionError,
   } = useSettings();
 
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Esc closes the dialog and focus moves into it while open, so keyboard
+  // users are not left tabbing through the page behind the overlay.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    panelRef.current?.focus();
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
@@ -63,11 +77,19 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       onClick={onClose}
     >
       <div
-        className="bg-secondary/80 border border-accent/30 rounded-lg shadow-2xl shadow-accent/10 p-4 sm:p-8 w-full max-w-2xl max-h-[90dvh] overflow-y-auto text-gray-200 transform transition-all duration-300 scale-100"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        tabIndex={-1}
+        className="bg-secondary/80 border border-accent/30 rounded-lg shadow-2xl shadow-accent/10 p-4 sm:p-8 w-full max-w-2xl max-h-[90dvh] overflow-y-auto text-gray-200 transform transition-all duration-300 scale-100 focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 mb-6">
-          <h2 className="text-2xl sm:text-3xl font-bold text-cyan drop-shadow-[0_0_8px_theme(colors.cyan)]">
+          <h2
+            id="settings-title"
+            className="text-2xl sm:text-3xl font-bold text-cyan drop-shadow-[0_0_8px_theme(colors.cyan)]"
+          >
             Admin Settings
           </h2>
           <button

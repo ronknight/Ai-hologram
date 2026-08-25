@@ -8,6 +8,22 @@ import { ChatMessage, OllamaModel, MessageRole } from '../types';
 
 // --- Helper for robust fetching ---
 /**
+ * Guards against non-http(s) base URLs (a malformed or malicious value from
+ * settings must never be handed to fetch). Returns a normalized URL string
+ * or null.
+ */
+function resolveApiUrl(baseUrl: string, path: string): string | null {
+  try {
+    const url = new URL(`${baseUrl.replace(/\/+$/, '')}${path}`);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A wrapper around fetch that includes a timeout.
  * A wrapper around fetch that includes a timeout.
  * @param resource The URL to fetch.
  * @param options Fetch options, including an optional `timeout` in milliseconds.
@@ -131,7 +147,9 @@ function extractJson(text: string): string | null {
  * to the /api/generate endpoint.
  */
 async function generate(baseUrl: string, body: OllamaGenerateBody): Promise<OllamaGenerateResponse> {
-    const response = await fetchWithTimeout(`${baseUrl}/api/generate`, {
+    const url = resolveApiUrl(baseUrl, '/api/generate');
+    if (!url) throw new Error(`Invalid Ollama server URL: ${baseUrl}`);
+    const response = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -157,7 +175,9 @@ export async function getModels(baseUrl: string): Promise<OllamaModel[]> {
   }
 
   try {
-    const response = await fetchWithTimeout(`${baseUrl}/api/tags`, {
+    const url = resolveApiUrl(baseUrl, '/api/tags');
+    if (!url) throw new Error(`Invalid Ollama server URL: ${baseUrl}`);
+    const response = await fetchWithTimeout(url, {
       retries: 3,
       timeout: 8000 // Increased timeout for reliability
     });
@@ -215,7 +235,9 @@ export async function generateChatStream(
     };
     
   try {
-    const response = await fetchWithTimeout(`${baseUrl}/api/chat`, {
+    const url = resolveApiUrl(baseUrl, '/api/chat');
+    if (!url) throw new Error(`Invalid Ollama server URL: ${baseUrl}`);
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
