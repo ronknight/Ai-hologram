@@ -34,4 +34,5 @@ export interface Settings {
   temperature: number;
   triggerWord: string;
   backdropTheme: BackdropTheme;
+  hologramModel: string;
 }

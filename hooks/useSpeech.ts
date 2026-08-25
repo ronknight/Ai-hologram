@@ -57,7 +57,15 @@ interface UseSpeechProps {
   triggerWord: string;
   onActivation: () => void;
   onTranscript: (transcript: string) => void;
+  /** Fires the instant each buffered sentence starts being spoken, so callers
+   * can reveal text in step with the voice instead of the moment it streams in. */
+  onSpeakStart?: (sentence: string) => void;
 }
+
+// Matches one buffered sentence at a time: any run of non-terminators followed
+// by the terminator(s) that close it. Text with no terminator yet (a chunk
+// still arriving mid-sentence) is left in the buffer for the next call.
+const SENTENCE_REGEX = /[^.!?\n]*[.!?\n]+/g;
 
 // Chrome ends a continuous session on its own after a stretch of silence, so
 // standby has to restart it. These bound that restart so a permanently failing
@@ -68,12 +76,14 @@ const MAX_SHORT_SESSIONS = 5;
 const START_RETRY_MS = 150;
 const START_RETRIES = 4;
 
-export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeechProps) => {
+export const useSpeech = ({ triggerWord, onActivation, onTranscript, onSpeakStart }: UseSpeechProps) => {
   const [speechState, setSpeechState] = useState<SpeechState>('idle');
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const sentenceQueueRef = useRef<string[]>([]);
+  // Streamed text not yet resolved into a complete sentence (no terminator seen yet).
+  const pendingTextRef = useRef('');
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const wakeWordDetectedRef = useRef(false);
   // Text streamed from the model arrives in token-sized chunks. It is held
@@ -102,9 +112,11 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
   const triggerWordRef = useRef(triggerWord);
   const onActivationRef = useRef(onActivation);
   const onTranscriptRef = useRef(onTranscript);
+  const onSpeakStartRef = useRef(onSpeakStart);
   triggerWordRef.current = triggerWord;
   onActivationRef.current = onActivation;
   onTranscriptRef.current = onTranscript;
+  onSpeakStartRef.current = onSpeakStart;
 
   const applyState = useCallback((next: SpeechState) => {
     stateRef.current = next;
@@ -152,6 +164,7 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
 
     speakingRef.current = true;
     applyState('speaking');
+    onSpeakStartRef.current?.(textToSpeak);
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
     if (voiceRef.current) utterance.voice = voiceRef.current;
@@ -169,9 +182,36 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     window.speechSynthesis.speak(utterance);
   }, [applyState]);
 
+  // Streamed chunks rarely land on a sentence boundary, so this buffers them
+  // and only queues text once a terminator closes a sentence — otherwise every
+  // network chunk became its own utterance, and per-utterance engine startup
+  // overhead made speech fall far behind the (instantly-appended) on-screen text.
   const speak = useCallback((text: string) => {
-    const sentences = text.match(/[^.!?]+[.!?\n]*/g) || [text];
-    sentenceQueueRef.current.push(...sentences.filter((s) => s.trim().length > 0));
+    pendingTextRef.current += text;
+
+    const sentences: string[] = [];
+    let consumed = 0;
+    SENTENCE_REGEX.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = SENTENCE_REGEX.exec(pendingTextRef.current)) !== null) {
+      const sentence = match[0].trim();
+      if (sentence) sentences.push(sentence);
+      consumed = SENTENCE_REGEX.lastIndex;
+    }
+    pendingTextRef.current = pendingTextRef.current.slice(consumed);
+
+    if (sentences.length === 0) return;
+    sentenceQueueRef.current.push(...sentences);
+    processSentenceQueue();
+  }, [processSentenceQueue]);
+
+  /** Speaks whatever trailing text never reached a sentence terminator — call
+   * once the stream that was feeding `speak` closes, or it's silently dropped. */
+  const flush = useCallback(() => {
+    const remaining = pendingTextRef.current.trim();
+    pendingTextRef.current = '';
+    if (!remaining) return;
+    sentenceQueueRef.current.push(remaining);
     processSentenceQueue();
   }, [processSentenceQueue]);
 
@@ -193,6 +233,7 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
   }, [speak]);
 
   const stopSpeaking = useCallback(() => {
+    pendingTextRef.current = '';
     sentenceQueueRef.current = [];
     streamBufferRef.current = '';
     if (currentUtteranceRef.current) {
@@ -404,6 +445,7 @@ export const useSpeech = ({ triggerWord, onActivation, onTranscript }: UseSpeech
     speak,
     speakStream,
     flushSpeak,
+    flush,
     stop,
     dismissError,
   };

@@ -11,6 +11,7 @@ interface SettingsContextType extends Settings {
   setTemperature: (temp: number) => void;
   setTriggerWord: (word: string) => void;
   setBackdropTheme: (theme: BackdropTheme) => void;
+  setHologramModel: (model: string) => void;
   availableModels: OllamaModel[];
   refreshModels: () => Promise<void>;
   isModelLoading: boolean;
@@ -24,6 +25,7 @@ const defaultSettings: Settings = {
   temperature: 0.7,
   triggerWord: 'hey assistant',
   backdropTheme: 'nature',
+  hologramModel: 'ironman',
 };
 
 /** Only http(s) origins may be used as an API base; anything else (e.g. a
@@ -122,6 +124,7 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     setTemperature: (temp: number) => setSettings(s => ({...s, temperature: temp})),
     setTriggerWord: (word: string) => setSettings(s => ({ ...s, triggerWord: word })),
     setBackdropTheme: (theme: BackdropTheme) => setSettings(s => ({ ...s, backdropTheme: theme })),
+    setHologramModel: (model: string) => setSettings(s => ({ ...s, hologramModel: model })),
     availableModels,
     refreshModels,
     isModelLoading,

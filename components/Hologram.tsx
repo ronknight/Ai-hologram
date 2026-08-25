@@ -26,6 +26,7 @@ interface HologramViewProps extends HologramProps {
   /** Passed down as a prop, not read from context: React context does not
       cross the react-three-fiber Canvas boundary. */
   backdropTheme: BackdropTheme;
+  hologramModel: string;
 }
 
 function LoaderOverlay() {
@@ -44,8 +45,8 @@ function LoaderOverlay() {
 
 type BoneEntry = { bone: THREE.Object3D; rest: THREE.Euler };
 
-function HologramModel({ isListening, isSpeaking, isIdle }: HologramProps) {
-  const gltf = useGLTF('/models/hologram.glb');
+function HologramModel({ isListening, isSpeaking, isIdle, hologramModel }: HologramProps & { hologramModel: string }) {
+  const gltf = useGLTF(`/models/${hologramModel}.glb`);
   const groupRef = useRef<THREE.Group>(null);
   const bonesRef = useRef<Record<string, BoneEntry>>({});
   const [hovered, setHovered] = useState(false);
@@ -274,7 +275,7 @@ function Rig() {
   );
 }
 
-const Hologram: React.FC<HologramViewProps> = ({ isListening, isSpeaking, isIdle, backdropTheme }) => {
+const Hologram: React.FC<HologramViewProps> = ({ isListening, isSpeaking, isIdle, backdropTheme, hologramModel }) => {
   return (
     <div className="fixed inset-0 w-full h-full z-10">
       <Canvas
@@ -299,7 +300,7 @@ const Hologram: React.FC<HologramViewProps> = ({ isListening, isSpeaking, isIdle
           <AccumulativeShadows temporal frames={60} alphaTest={0.85} opacity={0.8}>
             <RandomizedLight amount={8} radius={10} ambient={0.5} position={[5, 5, -10]} />
           </AccumulativeShadows>
-          <HologramModel isListening={isListening} isSpeaking={isSpeaking} isIdle={isIdle} />
+          <HologramModel isListening={isListening} isSpeaking={isSpeaking} isIdle={isIdle} hologramModel={hologramModel} />
         </Suspense>
       </Canvas>
     </div>

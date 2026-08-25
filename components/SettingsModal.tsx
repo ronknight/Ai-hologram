@@ -49,6 +49,8 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     setTriggerWord,
     backdropTheme,
     setBackdropTheme,
+    hologramModel,
+    setHologramModel,
     availableModels,
     refreshModels,
     isModelLoading,
@@ -68,6 +70,16 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     panelRef.current?.focus();
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
+
+  const modelNames = [
+    'ironman',
+    'flamingo',
+    'horse',
+    'michelle',
+    'parrot',
+    'soldier',
+    'xbot'
+  ].sort();
 
   if (!isOpen) return null;
 
@@ -182,6 +194,21 @@ const SettingsModal: FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         </Section>
 
         <Section title="Appearance">
+          <Field label="Avatar">
+            <select
+              value={hologramModel}
+              onChange={(e) => setHologramModel(e.target.value)}
+              className={inputStyles}
+            >
+              {modelNames.length > 0 ? (
+                modelNames.map((model) => (
+                  <option key={model} value={model}>{model}</option>
+                ))
+              ) : (
+                <option value="hologram">hologram</option>
+              )}
+            </select>
+          </Field>
           <Field label="Background">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {BACKDROP_ORDER.map((theme) => {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageRole } from '../types';
+import { ChatMessage, MessageRole } from '../types';
 import { useSettings } from '../context/SettingsContext';
 import { useSpeech } from '../hooks/useSpeech';
 import { generateChatStream } from '../services/ollama';
@@ -19,13 +19,22 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
-  const { selectedModel, ollamaUrl, systemPrompt, temperature, triggerWord, connectionError, backdropTheme } = useSettings();
+  const { selectedModel, ollamaUrl, systemPrompt, temperature, triggerWord, connectionError, backdropTheme, hologramModel } = useSettings();
   const [textInput, setTextInput] = useState('');
   const [lastReply, setLastReply] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   // Guards against a completed stream flushing into a request that was
   // already superseded (barge-in or a newer message).
   const requestSeqRef = useRef(0);
+  // Prior turns, so the model has context for follow-ups instead of answering
+  // each message cold. Excludes the system prompt — generateChatStream adds
+  // that itself.
+  const [history, setHistory] = useState<ChatMessage[]>([]);
+  // Accumulates the raw streamed reply for the history entry. Separate from
+  // `lastReply`, which now only fills in sentence-by-sentence as each is
+  // spoken (see onSpeakStart) — history needs the full text, not the
+  // currently-revealed portion.
+  const replyBufferRef = useRef('');
 
   const sendMessage = useCallback((text: string) => {
     const trimmed = text.trim();
@@ -34,23 +43,35 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
     const seq = ++requestSeqRef.current;
     setIsStreaming(true);
     setLastReply('');
+    replyBufferRef.current = '';
+
+    const userMessage: ChatMessage = { role: MessageRole.USER, content: trimmed };
+    const outgoing = [...history, userMessage];
+    setHistory(outgoing);
+
     generateChatStream(
       ollamaUrl,
       selectedModel,
-      [{ role: MessageRole.USER, content: trimmed }],
+      outgoing,
       systemPrompt,
       temperature,
       // Buffer streamed tokens and only enqueue complete sentences, so TTS
       // speaks whole sentences instead of restarting per fragment.
       (chunk) => {
         if (seq !== requestSeqRef.current) return;
-        setLastReply((prev) => prev + chunk);
+        replyBufferRef.current += chunk;
+        // Text is revealed via onSpeakStart below, in step with the voice,
+        // not here — appending on arrival let it race far ahead of speech.
         speechHookRef.current?.speakStream(chunk);
       },
       () => {
         if (seq !== requestSeqRef.current) return;
         speechHookRef.current?.flushSpeak();
         setIsStreaming(false);
+        const reply = replyBufferRef.current.trim();
+        if (reply) {
+          setHistory((prev) => [...prev, { role: MessageRole.ASSISTANT, content: reply }]);
+        }
       },
       () => {
         if (seq !== requestSeqRef.current) return;
@@ -60,7 +81,7 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
         setIsStreaming(false);
       }
     );
-  }, [isStreaming, ollamaUrl, selectedModel, systemPrompt, temperature]);
+  }, [history, isStreaming, ollamaUrl, selectedModel, systemPrompt, temperature]);
 
   const speechHook = useSpeech({
     triggerWord,
@@ -70,6 +91,7 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
       speechHook.startListening();
     },
     onTranscript: sendMessage,
+    onSpeakStart: (sentence) => setLastReply((prev) => (prev ? `${prev} ${sentence}` : sentence)),
   });
   // The hook result is a fresh object every render; keeping the latest one in
   // a ref lets sendMessage's stream callbacks stay referentially stable.
@@ -114,6 +136,7 @@ const ChatView: React.FC<ChatViewProps> = ({ active = true }) => {
         isSpeaking={speechState === 'speaking'}
         isIdle={speechState === 'idle'}
         backdropTheme={backdropTheme}
+        hologramModel={hologramModel}
       />
 
       {/* Voice is trigger-word activated and gives no feedback if it fails
